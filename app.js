@@ -104,6 +104,35 @@
   ];
   var EX_LISTS = { UPPER: UPPER_EX, LEGS: LEGS_EX, FULLBODY: FULLBODY_EX };
 
+  var EXERCISE_INFO = {
+    "Bench press": "Voeten plat op de grond, schouderbladen samengetrokken, stang raakt de borst ter hoogte van de tepels, duw explosief omhoog.",
+    "Incline dumbbell press": "Bank op 30-45°, dumbbells starten op schouderhoogte, duw omhoog zonder de onderrug hol te trekken.",
+    "Lat pulldown of pull-up": "Trek met de ellebogen, niet met de handen; stang/kin richting borst, schouders laag houden.",
+    "Seated cable row": "Rechte rug, trek de ellebogen naar achter langs het lichaam, knijp de schouderbladen samen.",
+    "Shoulder press": "Core aangespannen, druk recht omhoog zonder overmatig hol te hangen in de onderrug.",
+    "Lateral raises": "Lichte buiging in de ellebogen, til tot schouderhoogte, geen swing/momentum gebruiken.",
+    "Triceps pushdown": "Ellebogen dicht tegen het lichaam, enkel de onderarm beweegt.",
+    "Biceps curl": "Ellebogen stil houden naast het lichaam, volledige bewegingsuitslag.",
+    "Plank": "Rechte lijn van hoofd tot hakken, buik en billen aangespannen, niet doorzakken in de onderrug.",
+    "Back squat of leg press": "Knieën in lijn met de tenen, borst hoog, zak tot minstens heuphoogte parallel.",
+    "Romanian deadlift": "Lichte buiging in de knieën, zak via de heupen (hip hinge), stang/gewicht dicht bij de benen.",
+    "Bulgarian split squat": "Achterste voet verhoogd, zak recht naar beneden, voorste knie niet ver voorbij de teen.",
+    "Walking lunges": "Grote stap, achterste knie bijna de grond raken, rechtop blijven staan.",
+    "Leg curl": "Gecontroleerde beweging, geen momentum, volledige bewegingsuitslag.",
+    "Calf raises": "Volledige bewegingsuitslag, korte pauze boven aan de beweging.",
+    "Core (weighted plank / hanging knee raise)": "Rustig tempo, vermijd zwaaien; ademhaling blijft gelijkmatig.",
+    "Deadlift of trap bar deadlift": "Rug recht, stang/handvaten dicht bij het lichaam, duw de vloer weg met de benen.",
+    "Front squat of goblet squat": "Ellebogen hoog (front squat) of gewicht dicht tegen de borst (goblet), rechtop blijven.",
+    "Push press": "Kleine dip met de benen, gebruik het beenwerk om het gewicht boven het hoofd te duwen.",
+    "Pull-ups/lat pulldown": "Trek met de rug/ellebogen, volledige uithanging boven, kin over de stang.",
+    "Dumbbell row": "Rechte rug, trek de elleboog naar achter, knijp het schouderblad samen boven.",
+    "Farmers carry": "Rechtop blijven, schouders naar achter, stevige grip, korte gecontroleerde passen.",
+    "Wall balls": "Volledige squat, werp de bal met de beenkracht, vang en herhaal in één vloeiende beweging."
+  };
+
+  var RPE_INFO_TEXT = "RPE = ervaren inspanning. 6 = comfortabel (~4 reps reserve), 7 = behapbaar (~3 reps), 8 = zwaar (~2 reps), 9 = zeer zwaar (~1 rep). Techniek gaat altijd vóór gewicht.";
+  var DELOAD_INFO_TEXT = "Deload-week: volume met ongeveer 20% verlaagd om herstel te bevorderen en overbelasting te voorkomen — een normale, ingeplande stap in de opbouw, geen terugval.";
+
   var STARTW = {
     MAIN: "Bepalen via opwarmprotocol – doel-RPE zoals vermeld.",
     MAIN2: "Bepalen via opwarmprotocol – doel-RPE zoals vermeld.",
@@ -685,6 +714,14 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
+  // Tik-om-uit-te-klappen infopopup — werkt op tik (iPhone) én klik (desktop);
+  // pure :hover heeft geen zin op een toestel zonder muis.
+  function infoPop(label, text) {
+    return "<details class=\"info-pop\"><summary>" + esc(label) +
+      " <span class=\"info-icon\">i</span></summary>" +
+      "<div class=\"info-body\">" + esc(text) + "</div></details>";
+  }
+
   function tableHTML(headers, rows) {
     var h = "<div class=\"table-wrap\"><table><thead><tr>";
     headers.forEach(function (x) { h += "<th>" + esc(x) + "</th>"; });
@@ -773,6 +810,10 @@
     return "<span class=\"badge\">" + esc(phase.name) + "</span>";
   }
 
+  function deloadBadgeHTML() {
+    return "<span class=\"badge outline info-badge\">" + infoPop("Deload-week", DELOAD_INFO_TEXT) + "</span>";
+  }
+
   function photoFieldHTML(iso, d) {
     var html = "<label class=\"field\">Foto van vandaag (optioneel)</label>";
     if (d.photoURL) {
@@ -847,7 +888,7 @@
     var html = "";
     html += "<h1 class=\"page-title\">Vandaag — " + esc(PERSON_LABELS[getProfile()]) + "</h1>";
     html += "<div class=\"card\">";
-    html += "<div>" + phaseBadge(phase) + (deload ? "<span class=\"badge outline\">Deload-week</span>" : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
+    html += "<div>" + phaseBadge(phase) + (deload ? deloadBadgeHTML() : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
     html += "<h3 class=\"card-title\" style=\"margin-top:8px;\">" + esc(formatNLLong(today)) + "</h3>";
     html += "<p class=\"muted\">Programmaweek " + wk + " van ±" + totalProgramWeeks() + "</p>";
     html += "</div>";
@@ -948,9 +989,10 @@
       var s = scheme[cat];
       var setsReps = s[0], rpe = s[1], rest = s[2], prog = s[3];
       var saved = exData[name] || {};
+      var nameHTML = EXERCISE_INFO[name] ? infoPop(name, EXERCISE_INFO[name]) : esc(name);
       html += "<div class=\"ex-row\">";
-      html += "<div class=\"ex-name\">" + esc(name) + "</div>";
-      html += "<div class=\"ex-presc\">" + esc(setsReps) + " · RPE " + esc(rpe) + " · rust " + esc(rest) + "</div>";
+      html += "<div class=\"ex-name\">" + nameHTML + "</div>";
+      html += "<div class=\"ex-presc\">" + esc(setsReps) + " · " + infoPop("RPE " + rpe, RPE_INFO_TEXT) + " · rust " + esc(rest) + "</div>";
       html += "<div class=\"ex-note\">" + esc(prog) + "</div>";
       html += "<div class=\"ex-inputs\">";
       html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + (saved.weight || "") + "\"></label>";
@@ -999,8 +1041,9 @@
     html += "<label class=\"field\">Afstand (km)<input type=\"number\" step=\"0.1\" inputmode=\"decimal\" data-store=\"run\" data-date=\"" + iso + "\" data-field=\"distance\" value=\"" + (r.distance || "") + "\"></label>";
     html += "<label class=\"field\">Tempo (min/km)<input type=\"text\" placeholder=\"bv. 6:15\" data-store=\"run\" data-date=\"" + iso + "\" data-field=\"pace\" value=\"" + esc(r.pace || "") + "\"></label>";
     html += "</div>";
+    var hrInfoText = HR_ZONES.map(function (z) { return z[0] + " " + z[1] + " (" + z[2] + ")"; }).join(" · ");
     html += "<div class=\"input-grid\">";
-    html += "<label class=\"field\">Hartslagzone" + selectHTML(["", "Z1", "Z2", "Z3", "Z4", "Z5"], r.hrzone, "run", iso, "hrzone") + "</label>";
+    html += "<label class=\"field\">" + infoPop("Hartslagzone", hrInfoText) + selectHTML(["", "Z1", "Z2", "Z3", "Z4", "Z5"], r.hrzone, "run", iso, "hrzone") + "</label>";
     html += "<label class=\"field\">Gevoel" + selectHTML(["", "1 - zeer zwaar", "2 - zwaar", "3 - matig", "4 - goed", "5 - fantastisch"], r.feel, "run", iso, "feel") + "</label>";
     html += "</div>";
     html += "</div>";
@@ -1050,7 +1093,7 @@
 
     var html = back;
     html += "<h1 class=\"page-title\" style=\"margin-top:10px;\">" + esc(formatNLLong(date)) + "</h1>";
-    html += "<div style=\"margin-bottom:12px;\">" + phaseBadge(phase) + (deload ? "<span class=\"badge outline\">Deload-week</span>" : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
+    html += "<div style=\"margin-bottom:12px;\">" + phaseBadge(phase) + (deload ? deloadBadgeHTML() : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dow]) + " — sessie</h3>";
     html += "<p>" + esc(wp.title) + "</p>";
