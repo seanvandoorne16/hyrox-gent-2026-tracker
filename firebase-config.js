@@ -8,10 +8,10 @@
    ========================================================================== */
 
 var FIREBASE_CONFIG = {
-  apiKey: "VUL_HIER_IN",
-  authDomain: "VUL_HIER_IN",
-  projectId: "VUL_HIER_IN",
-  storageBucket: "VUL_HIER_IN",
-  messagingSenderId: "VUL_HIER_IN",
-  appId: "VUL_HIER_IN"
+  apiKey: "AIzaSyC73XD9nVA4S41sxWp02XIZK2WIameHl74",
+  authDomain: "hyrox-tracker-b9258.firebaseapp.com",
+  projectId: "hyrox-tracker-b9258",
+  storageBucket: "hyrox-tracker-b9258.firebasestorage.app",
+  messagingSenderId: "1095394851942",
+  appId: "1:1095394851942:web:57d415f18cf6c1103681a7"
 };
