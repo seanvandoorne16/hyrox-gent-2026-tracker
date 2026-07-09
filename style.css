@@ -174,7 +174,7 @@ label.field {
   color: var(--muted);
   margin-bottom: 10px;
 }
-label.field input, label.field select {
+label.field input, label.field select, label.field textarea {
   display: block;
   width: 100%;
   margin-top: 4px;
@@ -184,6 +184,8 @@ label.field input, label.field select {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
+  font-family: inherit;
+  resize: vertical;
 }
 .input-grid {
   display: grid;
