@@ -438,6 +438,9 @@
   var PERSONAL = { sean: {}, vriendin: {} };
 
   function getRoleForDate(date, person) {
+    var iso = toISO(date);
+    var t = CACHE.together[iso];
+    if (t && t.confirmed && t.role) return t.role;
     var phase = getPhase(date);
     var dow = dowKey(date);
     var custom = PERSONAL[person] && PERSONAL[person].weekmap && PERSONAL[person].weekmap[dow];
@@ -447,6 +450,66 @@
     var person = getProfile();
     var t = PERSONAL[person] && PERSONAL[person].tracking;
     return !(t && t[key] === false);
+  }
+  function isPaused(date, person) {
+    var iso = toISO(date);
+    var pauses = (PERSONAL[person] && PERSONAL[person].pauses) || [];
+    for (var i = 0; i < pauses.length; i++) {
+      if (iso >= pauses[i].start && iso <= pauses[i].end) return pauses[i];
+    }
+    return null;
+  }
+
+  // Hulpindeling per gekozen aantal trainingsdagen/week (kracht/loop/HYROX = "actief").
+  var DAYCOUNT_TEMPLATES = {
+    2: { maa: "fullbody", din: "rest", woe: "rest", don: "rest", vri: "run", zat: "rest", zon: "recovery" },
+    3: { maa: "fullbody", din: "rest", woe: "run", don: "rest", vri: "legs", zat: "rest", zon: "recovery" },
+    4: { maa: "upper", din: "run", woe: "legs", don: "rest", vri: "fullbody", zat: "rest", zon: "recovery" },
+    5: { maa: "upper", din: "run", woe: "legs", don: "rest", vri: "fullbody", zat: "hyrox", zon: "recovery" },
+    6: { maa: "upper", din: "run", woe: "legs", don: "run", vri: "fullbody", zat: "hyrox", zon: "recovery" },
+    7: { maa: "upper", din: "run", woe: "legs", don: "run", vri: "fullbody", zat: "hyrox", zon: "upper" }
+  };
+
+  // Volledig herschikkingsvoorstel: dagen die de gebruiker net wijzigde blijven vast (anker),
+  // de rol die daardoor "verdwijnt" wordt herverdeeld over de overige open dagen, in de
+  // oorspronkelijke relatieve volgorde (zo blijft de spreiding — bv. rust na een zware dag — behouden).
+  function suggestWeekmap(userMap, previousMap) {
+    var order = {};
+    ORDERED_DOW.forEach(function (d, i) { order[d] = i; });
+
+    var changed = ORDERED_DOW.filter(function (d) { return userMap[d] !== previousMap[d]; });
+    var anchors = {};
+    changed.forEach(function (d) { anchors[d] = userMap[d]; });
+
+    var usedRoles = {};
+    changed.forEach(function (d) { usedRoles[userMap[d]] = true; });
+    var defaultOrderIdx = {};
+    ORDERED_DOW.forEach(function (d) { defaultOrderIdx[previousMap[d]] = order[d]; });
+    var missingRoles = ROLES.filter(function (r) { return !usedRoles[r]; })
+      .sort(function (a, b) { return (defaultOrderIdx[a] || 0) - (defaultOrderIdx[b] || 0); });
+
+    var openDays = ORDERED_DOW.filter(function (d) { return !anchors[d]; });
+
+    var suggestion = {};
+    ORDERED_DOW.forEach(function (d) { if (anchors[d]) suggestion[d] = anchors[d]; });
+    openDays.forEach(function (d, i) { suggestion[d] = missingRoles[i] || previousMap[d]; });
+    return suggestion;
+  }
+  function isPermutation(map) {
+    var seen = {};
+    ORDERED_DOW.forEach(function (d) { seen[map[d]] = true; });
+    return Object.keys(seen).length === ROLES.length;
+  }
+  function weekmapEqual(a, b) {
+    return ORDERED_DOW.every(function (d) { return a[d] === b[d]; });
+  }
+  function weekmapSummaryHTML(map) {
+    var h = "<ul class=\"weekmap-summary\">";
+    ORDERED_DOW.forEach(function (d) {
+      h += "<li><b>" + esc(DOW_LABELS[d]) + "</b> — " + esc(ROLE_LABELS[map[d]]) + "</li>";
+    });
+    h += "</ul>";
+    return h;
   }
 
   /* ------------------------------------------------------------------ *
@@ -458,6 +521,7 @@
   var CURRENT_USER = null;
   var LOGIN_ERROR = "";
   var PASSWORD_MSG = "";
+  var WEEKMAP_SUGGESTION = null;
   var CACHE = { daily: {}, ex: {}, run: {}, circuit: {}, progress: [], together: {} };
   var listeners = [];
   var rerenderTimer = null;
@@ -715,6 +779,18 @@
     savePersonalPatch({ weekmap: map });
   }
 
+  function savePause(start, end, reason) {
+    var person = getProfile();
+    var pauses = ((PERSONAL[person] && PERSONAL[person].pauses) || []).slice();
+    pauses.push({ id: Date.now(), start: start, end: end, reason: reason });
+    savePersonalPatch({ pauses: pauses });
+  }
+  function deletePause(id) {
+    var person = getProfile();
+    var pauses = ((PERSONAL[person] && PERSONAL[person].pauses) || []).filter(function (p) { return String(p.id) !== String(id); });
+    savePersonalPatch({ pauses: pauses });
+  }
+
   function hasDailyData(iso) {
     var person = getProfile();
     return !!(CACHE.daily[person] && CACHE.daily[person][iso]);
@@ -763,9 +839,11 @@
     var existing = CACHE.together[iso];
     var payload;
     if (existing && !existing.confirmed && existing.proposedBy && existing.proposedBy !== person) {
-      payload = { date: iso, proposedBy: existing.proposedBy, time: existing.time, confirmed: true, confirmedBy: person };
+      // partner bevestigt: rol van die dag wordt voor BEIDEN gelijkgetrokken (zie getRoleForDate)
+      payload = { date: iso, proposedBy: existing.proposedBy, time: existing.time, role: existing.role, confirmed: true, confirmedBy: person };
     } else {
-      payload = { date: iso, proposedBy: person, time: time || (existing ? existing.time : "10:00"), confirmed: false, confirmedBy: null };
+      var myRole = getRoleForDate(parseISO(iso), person);
+      payload = { date: iso, proposedBy: person, time: time || (existing ? existing.time : "10:00"), role: myRole, confirmed: false, confirmedBy: null };
     }
     CACHE.together[iso] = payload;
     db.collection("together").doc(iso).set(payload).catch(function (e) { console.error("saveTogether", e); });
@@ -825,6 +903,7 @@
 
   function switchProfile() {
     clearProfile();
+    WEEKMAP_SUGGESTION = null;
     if (auth) auth.signOut();
     render();
   }
@@ -938,6 +1017,11 @@
     return "<span class=\"badge outline info-badge\">" + infoPop("Deload-week", DELOAD_INFO_TEXT) + "</span>";
   }
 
+  function pauseCardHTML(pause) {
+    return "<div class=\"card pause-card\"><h3 class=\"card-title\">⏸️ Pauze — " + esc(pause.reason) + "</h3>" +
+      "<p class=\"muted\">Van " + esc(formatNLShort(parseISO(pause.start))) + " tot " + esc(formatNLShort(parseISO(pause.end))) + ". Geniet van het herstel!</p></div>";
+  }
+
   function photoFieldHTML(iso, d) {
     if (!isTracked("photo")) return "";
     var html = "<label class=\"field\">Foto van vandaag (optioneel)</label>";
@@ -1011,6 +1095,7 @@
     var wk = programWeekNum(today);
     var deload = isDeloadWeek(today);
     var isRaceDay = iso === PROGRAM_END;
+    var pause = isPaused(today, getProfile());
 
     var html = "";
     html += "<h1 class=\"page-title\">Vandaag — " + esc(PERSON_LABELS[getProfile()]) + "</h1>";
@@ -1020,12 +1105,16 @@
     html += "<p class=\"muted\">Programmaweek " + wk + " van ±" + totalProgramWeeks() + "</p>";
     html += "</div>";
 
-    html += "<div class=\"card\">";
-    html += "<h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(today)]) + " — sessie</h3>";
-    html += "<p>" + esc(wp.title) + "</p>";
-    if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
-    html += "<a class=\"btn btn-primary btn-block\" href=\"#/dag/" + iso + "\">Bekijk volledige sessie &amp; log</a>";
-    html += "</div>";
+    if (pause) {
+      html += pauseCardHTML(pause);
+    } else {
+      html += "<div class=\"card\">";
+      html += "<h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(today)]) + " — sessie</h3>";
+      html += "<p>" + esc(wp.title) + "</p>";
+      if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
+      html += "<a class=\"btn btn-primary btn-block\" href=\"#/dag/" + iso + "\">Bekijk volledige sessie &amp; log</a>";
+      html += "</div>";
+    }
 
     html += "<h2 class=\"section-title\">Dagelijkse checklist</h2>";
     html += "<div class=\"card\">" + dailyChecklistHTML(iso) + "</div>";
@@ -1090,8 +1179,9 @@
       var role = getRoleForDate(date, person);
       var wp = ROLE_CONTENT[phase.id][role];
       var filled = hasDailyData(iso);
-      var togetherHint = (role === "run" || role === "hyrox") ? " 👥" : "";
-      var sessionTitle = wp.title + (iso === PROGRAM_END ? " — 🏁 WEDSTRIJDDAG" : "");
+      var pauseHere = isPaused(date, person);
+      var togetherHint = (!pauseHere && (role === "run" || role === "hyrox")) ? " 👥" : "";
+      var sessionTitle = pauseHere ? "⏸️ Pauze (" + pauseHere.reason + ")" : wp.title + (iso === PROGRAM_END ? " — 🏁 WEDSTRIJDDAG" : "");
 
       html += "<a class=\"day-card" + (isToday ? " today" : "") + "\" href=\"#/dag/" + iso + "\">";
       html += "<div class=\"dow\">" + esc(DOW_LABELS[dow]) + "<div class=\"date-sub\">" + esc(formatNLShort(date)) + "</div></div>";
@@ -1249,28 +1339,33 @@
     var wp = ROLE_CONTENT[phase.id][role];
     var deload = isDeloadWeek(date);
     var isRaceDay = iso === PROGRAM_END;
+    var pause = isPaused(date, getProfile());
 
     var html = back;
     html += "<h1 class=\"page-title\" style=\"margin-top:10px;\">" + esc(formatNLLong(date)) + "</h1>";
     html += "<div style=\"margin-bottom:12px;\">" + phaseBadge(phase) + (deload ? deloadBadgeHTML() : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
 
-    html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(date)]) + " — sessie</h3>";
-    html += "<p>" + esc(wp.title) + "</p>";
-    if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
-    html += "</div>";
+    if (pause) {
+      html += pauseCardHTML(pause);
+    } else {
+      html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(date)]) + " — sessie</h3>";
+      html += "<p>" + esc(wp.title) + "</p>";
+      if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
+      html += "</div>";
 
-    if (role === "upper" || role === "legs" || role === "fullbody") {
-      html += "<h2 class=\"section-title\">Krachttraining</h2>";
-      html += strengthTableHTML(iso, phase.id, role);
-    }
+      if (role === "upper" || role === "legs" || role === "fullbody") {
+        html += "<h2 class=\"section-title\">Krachttraining</h2>";
+        html += strengthTableHTML(iso, phase.id, role);
+      }
 
-    if (role === "run" || role === "hyrox") {
-      html += runLogFormHTML(iso, date, phase);
+      if (role === "run" || role === "hyrox") {
+        html += runLogFormHTML(iso, date, phase);
+      }
+      if (role === "hyrox") {
+        html += hyroxCircuitsHTML(iso, phase.id);
+      }
+      html += togetherCardHTML(iso, role);
     }
-    if (role === "hyrox") {
-      html += hyroxCircuitsHTML(iso, phase.id);
-    }
-    html += togetherCardHTML(iso, role);
 
     html += "<h2 class=\"section-title\">Dagelijkse checklist</h2>";
     html += "<div class=\"card\">" + dailyChecklistHTML(iso) + "</div>";
@@ -1486,6 +1581,24 @@
 
     html += "<div class=\"card\"><h3 class=\"card-title\">Mijn weekindeling</h3>";
     html += "<p class=\"small\">Kies zelf welke dag welk type sessie is — bv. jij loopt liever op maandag i.p.v. dinsdag. Geldt voor jou, op elke fase.</p>";
+
+    html += "<label class=\"field\">Snel starten — dagen per week actief trainen (kracht/loop/HYROX)" +
+      "<select id=\"daycount-select\">" +
+      [2, 3, 4, 5, 6, 7].map(function (n) { return "<option value=\"" + n + "\"" + (n === 5 ? " selected" : "") + ">" + n + " dagen</option>"; }).join("") +
+      "</select></label>";
+    html += "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"apply-daycount-btn\">Vul indeling hieronder in</button>";
+    html += "<p class=\"small\" id=\"daycount-warning\"></p>";
+
+    if (WEEKMAP_SUGGESTION) {
+      html += "<hr class=\"sep\"><p class=\"small\"><b>Jouw combinatie laat een dag onbenut of dubbel gebruikt — hier is een herschikkingsvoorstel:</b></p>";
+      html += "<p class=\"small\"><b>Jouw keuze</b></p>" + weekmapSummaryHTML(WEEKMAP_SUGGESTION.mine);
+      html += "<p class=\"small\"><b>Voorstel (betere spreiding)</b></p>" + weekmapSummaryHTML(WEEKMAP_SUGGESTION.suggested);
+      html += "<div class=\"btn-row\">";
+      html += "<button type=\"button\" class=\"btn btn-outline\" data-weekmap-choice=\"mine\">Gebruik mijn keuze</button>";
+      html += "<button type=\"button\" class=\"btn btn-primary\" data-weekmap-choice=\"suggested\">Gebruik voorstel</button>";
+      html += "</div><hr class=\"sep\">";
+    }
+
     html += "<form id=\"weekmap-form\">";
     ORDERED_DOW.forEach(function (dow) {
       var current = (prof.weekmap && prof.weekmap[dow]) || defaultRoleMap(getPhase(new Date()).id)[dow];
@@ -1495,6 +1608,26 @@
         "</select></label>";
     });
     html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Weekindeling opslaan</button>";
+    html += "</form></div>";
+
+    html += "<div class=\"card\"><h3 class=\"card-title\">Pauzeperiode (blessure/vakantie)</h3>";
+    html += "<p class=\"small\">Tijdens een pauzeperiode toont je schema \"Pauze\" i.p.v. een trainingssessie.</p>";
+    var pauses = prof.pauses || [];
+    if (pauses.length) {
+      pauses.slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; }).forEach(function (p) {
+        html += "<div class=\"progress-row\"><span>" + esc(formatNLShort(parseISO(p.start))) + " – " + esc(formatNLShort(parseISO(p.end))) + " · " + esc(p.reason) + "</span>" +
+          "<button class=\"del\" data-del-pause=\"" + p.id + "\" title=\"Verwijderen\">×</button></div>";
+      });
+    } else {
+      html += "<p class=\"muted\">Geen pauzeperiodes ingesteld.</p>";
+    }
+    html += "<form id=\"pause-form\">";
+    html += "<div class=\"input-grid\">";
+    html += "<label class=\"field\">Van<input type=\"date\" name=\"start\" required></label>";
+    html += "<label class=\"field\">Tot<input type=\"date\" name=\"end\" required></label>";
+    html += "</div>";
+    html += "<label class=\"field\">Reden<select name=\"reason\"><option value=\"Blessure\">Blessure</option><option value=\"Vakantie\">Vakantie</option><option value=\"Andere\">Andere</option></select></label>";
+    html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Pauze toevoegen</button>";
     html += "</form></div>";
 
     return html;
@@ -1823,6 +1956,21 @@
       });
     }
 
+    var applyDaycountBtn = document.getElementById("apply-daycount-btn");
+    if (applyDaycountBtn) {
+      applyDaycountBtn.addEventListener("click", function () {
+        var n = parseInt(document.getElementById("daycount-select").value, 10);
+        var tmpl = DAYCOUNT_TEMPLATES[n];
+        var wmForm2 = document.getElementById("weekmap-form");
+        ORDERED_DOW.forEach(function (dow) {
+          var sel = wmForm2 ? wmForm2.querySelector("select[name='" + dow + "']") : null;
+          if (sel) sel.value = tmpl[dow];
+        });
+        var warn = document.getElementById("daycount-warning");
+        if (warn) warn.textContent = n >= 6 ? "Let op: weinig tot geen rustdagen bij " + n + " dagen/week — zorg voor voldoende hersteltijd." : "";
+      });
+    }
+
     var wmForm = document.getElementById("weekmap-form");
     if (wmForm) {
       wmForm.addEventListener("submit", function (e) {
@@ -1830,9 +1978,51 @@
         var fd = new FormData(wmForm);
         var map = {};
         ORDERED_DOW.forEach(function (dow) { map[dow] = fd.get(dow); });
-        saveWeekmap(map);
+        var person = getProfile();
+        var prof = PERSONAL[person] || {};
+        var previousMap = {};
+        ORDERED_DOW.forEach(function (dow) { previousMap[dow] = (prof.weekmap && prof.weekmap[dow]) || defaultRoleMap(getPhase(new Date()).id)[dow]; });
+
+        if (isPermutation(map) || weekmapEqual(map, previousMap)) {
+          WEEKMAP_SUGGESTION = null;
+          saveWeekmap(map);
+        } else {
+          WEEKMAP_SUGGESTION = { mine: map, suggested: suggestWeekmap(map, previousMap) };
+          render();
+        }
       });
     }
+
+    document.querySelectorAll("[data-weekmap-choice]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var choice = btn.getAttribute("data-weekmap-choice");
+        var map = WEEKMAP_SUGGESTION && WEEKMAP_SUGGESTION[choice];
+        WEEKMAP_SUGGESTION = null;
+        if (map) saveWeekmap(map);
+        else render();
+      });
+    });
+
+    var pauseForm = document.getElementById("pause-form");
+    if (pauseForm) {
+      pauseForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(pauseForm);
+        var start = fd.get("start"), end = fd.get("end"), reason = fd.get("reason");
+        if (!start || !end) return;
+        if (parseISO(end).getTime() < parseISO(start).getTime()) {
+          alert("De einddatum moet na de startdatum liggen.");
+          return;
+        }
+        savePause(start, end, reason);
+        pauseForm.reset();
+      });
+    }
+    viewEl.querySelectorAll("[data-del-pause]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        deletePause(btn.getAttribute("data-del-pause"));
+      });
+    });
   }
 
   function bindInfoActions() {
