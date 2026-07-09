@@ -1,5 +1,5 @@
 /* ==========================================================================
-   HYROX Gent 2026 Tracker — vanilla JS PWA + Firebase (login + gedeelde data)
+   HYROX Tracker — vanilla JS PWA + Firebase (individuele login + gedeelde data)
    ========================================================================== */
 
 (function () {
@@ -9,16 +9,19 @@
    * 1. DATA (statisch trainingsschema — identiek voor iedereen)
    * ------------------------------------------------------------------ */
 
-  var PROGRAM_START = "2026-07-07";
-  var PROGRAM_END = "2026-12-20";
+  var DEFAULT_START = "2026-07-07";
+  var DEFAULT_RACE = "2026-12-20";
 
-  var PHASES = [
-    { id: 1, name: "Fase 1 — Base & Cut", start: "2026-07-07", end: "2026-08-16" },
-    { id: 2, name: "Fase 2 — Build", start: "2026-08-17", end: "2026-09-27" },
-    { id: 3, name: "Fase 3 — HYROX-specifiek", start: "2026-09-28", end: "2026-11-08" },
-    { id: 4, name: "Fase 4 — Peak", start: "2026-11-09", end: "2026-12-06" },
-    { id: 5, name: "Fase 5 — Taper", start: "2026-12-07", end: "2026-12-20" }
+  var PHASE_META = [
+    { id: 1, name: "Fase 1 — Base & Cut" },
+    { id: 2, name: "Fase 2 — Build" },
+    { id: 3, name: "Fase 3 — HYROX-specifiek" },
+    { id: 4, name: "Fase 4 — Peak" },
+    { id: 5, name: "Fase 5 — Taper" }
   ];
+  // Verhouding in dagen, gebaseerd op het originele schema (7 jul – 20 dec 2026 = 167 dagen).
+  // Wordt proportioneel herschaald naar elke gekozen start-/wedstrijddatum.
+  var PHASE_RATIOS = [41, 42, 42, 28, 14];
 
   var DOW_KEYS = ["zon", "maa", "din", "woe", "don", "vri", "zat"]; // getDay() 0-6
   var DOW_LABELS = {
@@ -70,7 +73,7 @@
       don: { title: "Rust – wandelen, minstens 8.000 stappen", extra: "" },
       vri: { title: "Zeer lichte activatie / volledige rust", extra: "" },
       zat: { title: "Rust of korte jog 10-15 min", extra: "" },
-      zon: { title: "Rust / wedstrijddag (20 december)", extra: "" }
+      zon: { title: "Rust / mogelijke wedstrijddag", extra: "" }
     }
   };
 
@@ -145,7 +148,7 @@
       CORE: ["2x45 sec", "6-7", "45 sec", "Onderhoud, geen opbouw."],
       CARRY: ["3x50 m", "7", "90 sec", "Onderhoud richting wedstrijdgewicht/afstand."],
       COND: ["2x15 reps", "7", "60 sec", "Onderhoud, techniek boven volume."],
-      note: "Focus: volume -20 à -30% t.o.v. fase 3. Week 20 extra licht (ingebouwde deload)."
+      note: "Focus: volume -20 à -30% t.o.v. fase 3. Vierde taperweek extra licht (ingebouwde deload)."
     },
     5: {
       MAIN: ["2x8", "6", "90 sec", "Geen progressie meer — enkel doorbloeding en techniek."],
@@ -154,25 +157,19 @@
       CORE: ["2x30 sec", "5-6", "45 sec", "Onderhoud."],
       CARRY: ["2x30 m", "6", "60 sec", "Licht, enkel bewegingspatroon activeren."],
       COND: ["2x10 reps", "6", "60 sec", "Licht, enkel bewegingspatroon activeren."],
-      note: "Focus: maximale frisheid. Laatste krachtsessie uiterlijk dinsdag 15 december 2026."
+      note: "Focus: maximale frisheid. Laatste krachtsessie uiterlijk 5 dagen voor de wedstrijd."
     }
   };
 
-  var RUN_MONTHS = {
-    7: { label: "Juli", zone2: "2x 20-25 min Z2", interval: "Nog geen (gewenning)", tempo: "Geen", brick: "1x 10 min, laag tempo", long: "Za: 25-30 min Z2", volume: "≈60-70 min/week" },
-    8: { label: "Augustus", zone2: "2x 25-30 min Z2", interval: "6x 1 min Z4 / 2 min Z1", tempo: "Geen", brick: "1x 10-15 min", long: "Za: 35-40 min Z2", volume: "≈90-100 min/week — doel: 5 km comfortabel" },
-    9: { label: "September", zone2: "2x 30 min Z2", interval: "5x 3 min Z4 / 2 min Z1", tempo: "1x 10 min Z3", brick: "1x 15-20 min", long: "Za: 45-50 min Z2", volume: "≈8 km totaalvolume/week" },
-    10: { label: "Oktober", zone2: "2x 30-35 min Z2", interval: "6x 800 m Z4 / 90 sec rust", tempo: "1x 15-20 min Z3", brick: "1x 20 min direct na kracht", long: "Halve HYROX-simulatie", volume: "Opbouw richting simulatie" },
-    11: { label: "November", zone2: "2x 30 min Z2", interval: "8x 400 m Z4-Z5 / korte rust", tempo: "1x 20-25 min Z3", brick: "Meerdere korte runs tussen stations", long: "(Bijna) volledige simulatie", volume: "Piekvolume" },
-    12: { label: "December", zone2: "2x 25-30 min Z2", interval: "4x 400 m Z4 (onderhoud)", tempo: "1x 10-15 min Z3", brick: "1x 15 min", long: "Laatste volledige simulatie (week 1 dec)", volume: "Afbouw richting taper" }
-  };
-
-  var TAPER_SCHEDULE = [
-    ["7-13 december", "2x Z2 20 min + 1x korte intervallen 4x400m Z4 + korte jog"],
-    ["14-15 december", "Laatste kwaliteitssessie: 20 min Z2 + 4x400m Z4 (dinsdag 15/12)"],
-    ["16-18 december", "Enkel lichte jogs 10-15 min Z1-Z2, of volledige rust"],
-    ["19 december", "Volledige rust of 'flush-run' 10 min zeer rustig Z1"],
-    ["20 december", "WEDSTRIJDDAG — HYROX Gent"]
+  // Loopschema per relatieve programmamaand (1e, 2e, 3e... maand van het traject),
+  // onafhankelijk van de kalendermaand — zo blijft dit correct bij elke startdatum.
+  var RUN_STAGES = [
+    { zone2: "2x 20-25 min Z2", interval: "Nog geen (gewenning)", tempo: "Geen", brick: "1x 10 min, laag tempo", long: "Za: 25-30 min Z2", volume: "≈60-70 min/week — gewoonte opbouwen" },
+    { zone2: "2x 25-30 min Z2", interval: "6x 1 min Z4 / 2 min Z1", tempo: "Geen", brick: "1x 10-15 min", long: "Za: 35-40 min Z2", volume: "≈90-100 min/week — doel: 5 km comfortabel" },
+    { zone2: "2x 30 min Z2", interval: "5x 3 min Z4 / 2 min Z1", tempo: "1x 10 min Z3", brick: "1x 15-20 min", long: "Za: 45-50 min Z2", volume: "≈8 km totaalvolume/week" },
+    { zone2: "2x 30-35 min Z2", interval: "6x 800 m Z4 / 90 sec rust", tempo: "1x 15-20 min Z3", brick: "1x 20 min direct na kracht", long: "Halve HYROX-simulatie", volume: "Opbouw richting simulatie" },
+    { zone2: "2x 30 min Z2", interval: "8x 400 m Z4-Z5 / korte rust", tempo: "1x 20-25 min Z3", brick: "Meerdere korte runs tussen stations", long: "(Bijna) volledige simulatie", volume: "Piekvolume" },
+    { zone2: "2x 25-30 min Z2", interval: "4x 400 m Z4 (onderhoud)", tempo: "1x 10-15 min Z3", brick: "1x 15 min", long: "Laatste volledige simulatie", volume: "Afbouw richting taper" }
   ];
 
   var HR_ZONES = [
@@ -219,10 +216,13 @@
 
   var PERSON_LABELS = { sean: "Sean", vriendin: "Vriendin" };
   var PERSON_COLORS = { sean: "#D62828", vriendin: "#2563EB" };
-  var AUTH_EMAIL = "duo@hyrox-gent-2026-tracker.local";
+  var PERSON_EMAILS = {
+    sean: "sean@hyrox-gent-2026-tracker.local",
+    vriendin: "vriendin@hyrox-gent-2026-tracker.local"
+  };
 
   /* ------------------------------------------------------------------ *
-   * 2. DATUM-HELPERS
+   * 2. DATUM-HELPERS + DYNAMISCH SCHEMA (start-/wedstrijddatum instelbaar)
    * ------------------------------------------------------------------ */
 
   var MS_DAY = 86400000;
@@ -261,10 +261,49 @@
     return d.toLocaleDateString("nl-BE", { day: "numeric", month: "short" });
   }
 
-  var START_DATE = parseISO(PROGRAM_START);
-  var END_DATE = parseISO(PROGRAM_END);
-  var FIRST_MONDAY = getMonday(START_DATE);
-  var LAST_MONDAY = getMonday(END_DATE);
+  function computePhases(startISO, raceISO) {
+    var start = parseISO(startISO), race = parseISO(raceISO);
+    var totalDays = Math.round((race.getTime() - start.getTime()) / MS_DAY) + 1;
+    if (totalDays < 5) totalDays = 5;
+
+    var ratioSum = PHASE_RATIOS.reduce(function (a, b) { return a + b; }, 0);
+    var raw = PHASE_RATIOS.map(function (r) { return totalDays * (r / ratioSum); });
+    var days = raw.map(function (v) { return Math.max(1, Math.floor(v)); });
+    var used = days.reduce(function (a, b) { return a + b; }, 0);
+    var remainder = totalDays - used;
+    var order = raw.map(function (v, i) { return { i: i, frac: v - Math.floor(v) }; })
+      .sort(function (a, b) { return b.frac - a.frac; });
+    var k = 0;
+    while (remainder > 0 && order.length) {
+      days[order[k % order.length].i]++;
+      remainder--;
+      k++;
+    }
+
+    var phases = [];
+    var cursor = new Date(start);
+    for (var i = 0; i < PHASE_META.length; i++) {
+      var s = new Date(cursor);
+      var e = addDays(s, days[i] - 1);
+      phases.push({ id: PHASE_META[i].id, name: PHASE_META[i].name, start: toISO(s), end: toISO(e) });
+      cursor = addDays(e, 1);
+    }
+    phases[phases.length - 1].end = toISO(race);
+    return phases;
+  }
+
+  var PROGRAM_START, PROGRAM_END, START_DATE, END_DATE, FIRST_MONDAY, LAST_MONDAY, PHASES;
+
+  function applyScheduleSettings(startISO, raceISO) {
+    PROGRAM_START = startISO;
+    PROGRAM_END = raceISO;
+    START_DATE = parseISO(startISO);
+    END_DATE = parseISO(raceISO);
+    FIRST_MONDAY = getMonday(START_DATE);
+    LAST_MONDAY = getMonday(END_DATE);
+    PHASES = computePhases(startISO, raceISO);
+  }
+  applyScheduleSettings(DEFAULT_START, DEFAULT_RACE);
 
   function getPhase(date) {
     var t = midnight(date).getTime();
@@ -272,7 +311,7 @@
       var p = PHASES[i];
       if (t >= parseISO(p.start).getTime() && t <= parseISO(p.end).getTime()) return p;
     }
-    return null;
+    return t < START_DATE.getTime() ? PHASES[0] : PHASES[PHASES.length - 1];
   }
   function inProgram(date) {
     var t = midnight(date).getTime();
@@ -282,15 +321,44 @@
     var diff = Math.floor((midnight(date).getTime() - START_DATE.getTime()) / (7 * MS_DAY));
     return diff + 1;
   }
+  function totalProgramWeeks() {
+    return Math.max(1, Math.ceil((END_DATE.getTime() - START_DATE.getTime()) / MS_DAY / 7));
+  }
   function isDeloadWeek(date) {
     var w = programWeekNum(date);
-    return w > 0 && w <= 20 && w % 4 === 0;
+    var total = totalProgramWeeks();
+    return w > 0 && w < total && w % 4 === 0;
   }
   function dowKey(date) {
     return DOW_KEYS[date.getDay()];
   }
   function monthRunInfo(date) {
-    return RUN_MONTHS[date.getMonth() + 1];
+    var idx = Math.floor((midnight(date).getTime() - START_DATE.getTime()) / MS_DAY / 30.44);
+    if (idx < 0) idx = 0;
+    if (idx >= RUN_STAGES.length) idx = RUN_STAGES.length - 1;
+    var stage = RUN_STAGES[idx];
+    var out = { label: date.toLocaleDateString("nl-BE", { month: "long" }) };
+    for (var key in stage) out[key] = stage[key];
+    return out;
+  }
+  function getTaperSchedule() {
+    var phase5 = PHASES[PHASES.length - 1];
+    var start = parseISO(phase5.start);
+    var race = END_DATE;
+    var quality = clampDate(addDays(race, -5), start, race);
+    var lightStart = clampDate(addDays(race, -4), start, race);
+    var rest = clampDate(addDays(race, -1), start, race);
+    var rows = [];
+    if (quality.getTime() > start.getTime()) {
+      rows.push([formatNLShort(start) + " – " + formatNLShort(addDays(quality, -1)), "Zone 2-lopen + 1x korte intervallen, volume duidelijk lager dan fase 4"]);
+    }
+    rows.push([formatNLShort(quality), "Laatste kwaliteitssessie: 20 min Z2 + korte scherpe intervallen"]);
+    if (rest.getTime() > lightStart.getTime()) {
+      rows.push([formatNLShort(lightStart) + " – " + formatNLShort(addDays(rest, -1)), "Enkel lichte jogs 10-15 min Z1-Z2, of volledige rust"]);
+    }
+    rows.push([formatNLShort(rest), "Volledige rust of 'flush-run' 10 min zeer rustig Z1"]);
+    rows.push([formatNLShort(race), "WEDSTRIJDDAG"]);
+    return rows;
   }
 
   /* ------------------------------------------------------------------ *
@@ -315,13 +383,14 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * 4. FIREBASE — auth + gedeelde data (Firestore)
+   * 4. FIREBASE — auth (individuele codes) + gedeelde data (Firestore + Storage)
    * ------------------------------------------------------------------ */
 
-  var fbApp = null, auth = null, db = null;
+  var fbApp = null, auth = null, db = null, storage = null;
   var AUTH_READY = false;
   var CURRENT_USER = null;
   var LOGIN_ERROR = "";
+  var PASSWORD_MSG = "";
   var CACHE = { daily: {}, ex: {}, run: {}, circuit: {}, progress: [] };
   var listeners = [];
   var rerenderTimer = null;
@@ -331,12 +400,18 @@
     return typeof FIREBASE_CONFIG !== "undefined" && FIREBASE_CONFIG.apiKey &&
       FIREBASE_CONFIG.apiKey.indexOf("VUL_HIER_IN") === -1;
   }
+  function storageConfigured() {
+    return firebaseConfigured() && !!FIREBASE_CONFIG.storageBucket;
+  }
 
   function initFirebase() {
     if (!firebaseConfigured()) return;
     fbApp = firebase.initializeApp(FIREBASE_CONFIG);
     auth = firebase.auth();
     db = firebase.firestore();
+    if (storageConfigured() && firebase.storage) {
+      try { storage = firebase.storage(); } catch (e) { storage = null; }
+    }
     try {
       db.enablePersistence({ synchronizeTabs: true }).catch(function () { /* offline-cache niet kritiek */ });
     } catch (e) { /* niet ondersteund, geen probleem */ }
@@ -450,6 +525,16 @@
       });
       if (dirty || snap.metadata.fromCache === false) scheduleRerender();
     }, function (err) { console.error("progress listener", err); }));
+
+    listeners.push(db.collection("settings").doc("program").onSnapshot(function (snap) {
+      if (snap.exists) {
+        var d = snap.data();
+        if (d.startDate && d.raceDate) {
+          applyScheduleSettings(d.startDate, d.raceDate);
+        }
+      }
+      if (!snap.metadata.hasPendingWrites) scheduleRerender();
+    }, function (err) { console.error("settings listener", err); }));
   }
 
   /* ---- schrijffuncties (optimistisch lokaal + Firestore) ---- */
@@ -509,28 +594,86 @@
     db.collection("progress").doc(id).delete().catch(function (e) { console.error("deleteProgress", e); });
   }
 
+  function saveProgramSettings(startISO, raceISO) {
+    applyScheduleSettings(startISO, raceISO);
+    db.collection("settings").doc("program").set(
+      { startDate: startISO, raceDate: raceISO, updatedAt: Date.now() }, { merge: true }
+    ).catch(function (e) { console.error("saveProgramSettings", e); });
+    render();
+  }
+
   function hasDailyData(iso) {
     var person = getProfile();
     return !!(CACHE.daily[person] && CACHE.daily[person][iso]);
   }
 
-  /* ---- login ---- */
+  /* ---- foto's (Firebase Storage) ---- */
 
-  function attemptLogin(code) {
+  function uploadDailyPhoto(iso, file) {
+    if (!storage) { alert("Foto-opslag is niet beschikbaar. Controleer of Firebase Storage is ingesteld (zie INSTRUCTIES.md)."); return; }
+    var person = getProfile();
+    var path = "photos/" + person + "/" + iso + ".jpg";
+    storage.ref().child(path).put(file).then(function (snap) {
+      return snap.ref.getDownloadURL();
+    }).then(function (url) {
+      saveDaily(iso, "photoURL", url);
+      render();
+    }).catch(function (e) {
+      console.error("uploadDailyPhoto", e);
+      alert("Uploaden van de foto is mislukt. Probeer opnieuw.");
+    });
+  }
+  function deleteDailyPhoto(iso) {
+    if (!confirm("Deze foto verwijderen?")) return;
+    var person = getProfile();
+    var path = "photos/" + person + "/" + iso + ".jpg";
+    if (storage) storage.ref().child(path).delete().catch(function () { /* mogelijk al weg */ });
+    saveDaily(iso, "photoURL", "");
+    render();
+  }
+  function collectPhotos() {
+    var items = [];
+    ["sean", "vriendin"].forEach(function (person) {
+      var daily = CACHE.daily[person] || {};
+      Object.keys(daily).forEach(function (iso) {
+        if (daily[iso].photoURL) items.push({ person: person, date: iso, url: daily[iso].photoURL });
+      });
+    });
+    items.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    return items;
+  }
+
+  /* ---- login (individuele toegangscode per profiel) ---- */
+
+  function attemptLogin(profile, code) {
     LOGIN_ERROR = "";
+    var email = PERSON_EMAILS[profile];
     return db.collection("meta").doc("setup").get().then(function (snap) {
-      if (snap.exists && snap.data().claimed) {
-        return auth.signInWithEmailAndPassword(AUTH_EMAIL, code);
+      var data = snap.exists ? snap.data() : {};
+      if (data[profile]) {
+        return auth.signInWithEmailAndPassword(email, code);
       }
-      return auth.createUserWithEmailAndPassword(AUTH_EMAIL, code).then(function () {
-        return db.collection("meta").doc("setup").set({ claimed: true, createdAt: Date.now() });
+      return auth.createUserWithEmailAndPassword(email, code).then(function () {
+        var update = {};
+        update[profile] = true;
+        return db.collection("meta").doc("setup").set(update, { merge: true });
       });
     });
   }
 
-  function doSignOut() {
+  function changePassword(oldCode, newCode) {
+    var user = auth.currentUser;
+    if (!user) return Promise.reject(new Error("Niet ingelogd."));
+    var cred = firebase.auth.EmailAuthProvider.credential(user.email, oldCode);
+    return user.reauthenticateWithCredential(cred).then(function () {
+      return user.updatePassword(newCode);
+    });
+  }
+
+  function switchProfile() {
     clearProfile();
     if (auth) auth.signOut();
+    render();
   }
 
   /* ------------------------------------------------------------------ *
@@ -556,7 +699,7 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * 6. RENDER: SETUP / LOGIN / PROFIEL-GATE
+   * 6. RENDER: SETUP / PROFIEL / LOGIN-GATE
    * ------------------------------------------------------------------ */
 
   function renderSetupNeeded() {
@@ -568,45 +711,49 @@
       "</div></div>";
   }
 
-  function renderLogin() {
-    return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
-      "<div class=\"big-icon\">🔒</div>" +
-      "<h1 class=\"page-title\">HYROX Gent 2026</h1>" +
-      "<p class=\"muted\">Voer de gedeelde toegangscode in. De eerste keer dat je een code invoert, wordt dit meteen de code voor jullie beiden.</p>" +
-      (LOGIN_ERROR ? "<div class=\"warnbox\">" + esc(LOGIN_ERROR) + "</div>" : "") +
-      "<form id=\"login-form\">" +
-      "<label class=\"field\">Toegangscode<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
-      "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
-      "</form>" +
-      "<p class=\"small\" style=\"margin-top:10px;\">Kies een code van minstens 6 tekens die jullie beiden onthouden.</p>" +
-      "</div></div>";
-  }
-
   function renderProfilePicker() {
     return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
       "<div class=\"big-icon\">👋</div>" +
       "<h1 class=\"page-title\">Wie ben jij?</h1>" +
-      "<p class=\"muted\">Dit bepaalt onder welk profiel jouw data wordt bijgehouden. Later te wijzigen via Info.</p>" +
+      "<p class=\"muted\">Elk heeft een eigen toegangscode. Kies eerst wie je bent.</p>" +
       "<button class=\"btn btn-primary btn-block\" data-pick-profile=\"sean\">Sean</button>" +
       "<button class=\"btn btn-outline btn-block\" data-pick-profile=\"vriendin\">Vriendin</button>" +
       "</div></div>";
   }
 
+  function renderLogin() {
+    var profile = getProfile();
+    return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
+      "<div class=\"big-icon\">🔒</div>" +
+      "<h1 class=\"page-title\">Inloggen als " + esc(PERSON_LABELS[profile]) + "</h1>" +
+      "<p class=\"muted\">Voer je eigen toegangscode in (min. 6 tekens). De eerste keer dat jij inlogt, wordt dit meteen jouw persoonlijke code.</p>" +
+      (LOGIN_ERROR ? "<div class=\"warnbox\">" + esc(LOGIN_ERROR) + "</div>" : "") +
+      "<form id=\"login-form\">" +
+      "<label class=\"field\">Toegangscode<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
+      "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
+      "</form>" +
+      "<button class=\"btn btn-outline btn-block\" id=\"back-to-picker\">Niet " + esc(PERSON_LABELS[profile]) + "? Kies opnieuw</button>" +
+      "</div></div>";
+  }
+
   function bindLoginForm() {
     var form = document.getElementById("login-form");
-    if (!form) return;
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var code = new FormData(form).get("code");
-      var btn = form.querySelector("button");
-      btn.disabled = true; btn.textContent = "Bezig…";
-      attemptLogin(code).catch(function (err) {
-        LOGIN_ERROR = err && err.code === "auth/weak-password"
-          ? "Kies een code van minstens 6 tekens."
-          : "Foute toegangscode. Probeer opnieuw.";
-        render();
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var code = new FormData(form).get("code");
+        var btn = form.querySelector("button");
+        btn.disabled = true; btn.textContent = "Bezig…";
+        attemptLogin(getProfile(), code).catch(function (err) {
+          LOGIN_ERROR = err && err.code === "auth/weak-password"
+            ? "Kies een code van minstens 6 tekens."
+            : "Foute toegangscode. Probeer opnieuw.";
+          render();
+        });
       });
-    });
+    }
+    var back = document.getElementById("back-to-picker");
+    if (back) back.addEventListener("click", function () { clearProfile(); render(); });
   }
 
   function bindProfilePicker() {
@@ -626,18 +773,33 @@
     return "<span class=\"badge\">" + esc(phase.name) + "</span>";
   }
 
+  function photoFieldHTML(iso, d) {
+    var html = "<label class=\"field\">Foto van vandaag (optioneel)</label>";
+    if (d.photoURL) {
+      html += "<div class=\"photo-preview\">" +
+        "<img src=\"" + esc(d.photoURL) + "\" alt=\"Foto van vandaag\">" +
+        "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-photo-delete=\"" + iso + "\">Verwijder foto</button>" +
+        "</div>";
+    } else {
+      html += "<input type=\"file\" accept=\"image/*\" data-photo-upload=\"" + iso + "\">";
+    }
+    return html;
+  }
+
   function dailyChecklistHTML(iso) {
     var person = getProfile();
     var d = (CACHE.daily[person] && CACHE.daily[person][iso]) || {};
     var html = "";
     html += "<label class=\"checklist-item\"><input type=\"checkbox\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"training\" " + (d.training ? "checked" : "") + "> Training gedaan</label>";
     html += "<label class=\"checklist-item\"><input type=\"checkbox\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"protein\" " + (d.protein ? "checked" : "") + "> Eiwitdoel gehaald (190-200 g)</label>";
+    html += "<label class=\"checklist-item\"><input type=\"checkbox\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"cheatDay\" " + (d.cheatDay ? "checked" : "") + "> Cheat day</label>";
     html += "<label class=\"field\">Stappen<input type=\"number\" inputmode=\"numeric\" placeholder=\"bv. 9500\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"steps\" value=\"" + (d.steps || "") + "\"></label>";
     html += "<div class=\"input-grid\">";
     html += "<label class=\"field\">Gewicht (kg)<input type=\"number\" step=\"0.1\" inputmode=\"decimal\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"weight\" value=\"" + (d.weight || "") + "\"></label>";
     html += "<label class=\"field\">Slaap (uren)<input type=\"number\" step=\"0.25\" inputmode=\"decimal\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"sleep\" value=\"" + (d.sleep || "") + "\"></label>";
     html += "</div>";
     html += "<label class=\"field\">Water (liter)<input type=\"number\" step=\"0.1\" inputmode=\"decimal\" data-store=\"daily\" data-date=\"" + iso + "\" data-field=\"water\" value=\"" + (d.water || "") + "\"></label>";
+    html += photoFieldHTML(iso, d);
     return html;
   }
 
@@ -651,6 +813,7 @@
       html += "<div class=\"partner-row\"><span>Training gedaan</span><span>" + (d.training ? "✅" : "—") + "</span></div>";
       if (d.steps) html += "<div class=\"partner-row\"><span>Stappen</span><span>" + esc(d.steps) + "</span></div>";
       html += "<div class=\"partner-row\"><span>Eiwitdoel gehaald</span><span>" + (d.protein ? "✅" : "—") + "</span></div>";
+      if (d.cheatDay) html += "<div class=\"partner-row\"><span>Cheat day</span><span>🍕</span></div>";
     }
     html += "</div>";
     return html;
@@ -663,13 +826,13 @@
       var daysLeft = Math.round((START_DATE - today) / MS_DAY);
       return "<div class=\"empty-state\"><div class=\"big\">⏳</div>" +
         "<p><b>Het programma start over " + daysLeft + " dag(en)</b><br>" +
-        "Startdatum: 7 juli 2026.</p>" +
+        "Startdatum: " + esc(formatNLLong(START_DATE)) + ".</p>" +
         "<a class=\"btn btn-outline btn-block\" href=\"#/week\">Bekijk het volledige schema</a></div>";
     }
     if (today.getTime() > END_DATE.getTime()) {
       return "<div class=\"empty-state\"><div class=\"big\">🏁</div>" +
         "<p><b>Het programma en de wedstrijd zitten erop.</b><br>" +
-        "Proficiat aan Sean en zijn vriendin met HYROX Gent 2026!</p>" +
+        "Proficiat met de wedstrijd!</p>" +
         "<a class=\"btn btn-outline btn-block\" href=\"#/voortgang\">Bekijk je voortgang</a></div>";
     }
 
@@ -679,13 +842,14 @@
     var wp = WEEKPLANS[phase.id][dow];
     var wk = programWeekNum(today);
     var deload = isDeloadWeek(today);
+    var isRaceDay = iso === PROGRAM_END;
 
     var html = "";
     html += "<h1 class=\"page-title\">Vandaag — " + esc(PERSON_LABELS[getProfile()]) + "</h1>";
     html += "<div class=\"card\">";
-    html += "<div>" + phaseBadge(phase) + (deload ? "<span class=\"badge outline\">Deload-week</span>" : "") + "</div>";
+    html += "<div>" + phaseBadge(phase) + (deload ? "<span class=\"badge outline\">Deload-week</span>" : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
     html += "<h3 class=\"card-title\" style=\"margin-top:8px;\">" + esc(formatNLLong(today)) + "</h3>";
-    html += "<p class=\"muted\">Programmaweek " + wk + " van ±24</p>";
+    html += "<p class=\"muted\">Programmaweek " + wk + " van ±" + totalProgramWeeks() + "</p>";
     html += "</div>";
 
     html += "<div class=\"card\">";
@@ -756,10 +920,11 @@
       var phase = getPhase(date);
       var wp = WEEKPLANS[phase.id][dow];
       var filled = hasDailyData(iso);
+      var sessionTitle = wp.title + (iso === PROGRAM_END ? " — 🏁 WEDSTRIJDDAG" : "");
 
       html += "<a class=\"day-card" + (isToday ? " today" : "") + "\" href=\"#/dag/" + iso + "\">";
       html += "<div class=\"dow\">" + esc(DOW_LABELS[dow]) + "<div class=\"date-sub\">" + esc(formatNLShort(date)) + "</div></div>";
-      html += "<div class=\"session\">" + esc(wp.title) + "</div>";
+      html += "<div class=\"session\">" + esc(sessionTitle) + "</div>";
       html += "<div class=\"dot" + (filled ? " filled" : "") + "\"></div>";
       html += "<div class=\"chev\">›</div>";
       html += "</a>";
@@ -813,7 +978,7 @@
 
     if (phase.id === 5) {
       html += "<div class=\"table-wrap\"><table><thead><tr><th>Periode</th><th>Sessie</th></tr></thead><tbody>";
-      TAPER_SCHEDULE.forEach(function (row) {
+      getTaperSchedule().forEach(function (row) {
         html += "<tr><td>" + esc(row[0]) + "</td><td>" + esc(row[1]) + "</td></tr>";
       });
       html += "</tbody></table></div>";
@@ -873,17 +1038,19 @@
 
     if (!inProgram(date)) {
       return back + "<div class=\"empty-state\" style=\"margin-top:20px;\"><div class=\"big\">📆</div>" +
-        "<p>" + esc(formatNLLong(date)) + " valt buiten de trainingsperiode<br>(7 juli – 20 december 2026).</p></div>";
+        "<p>" + esc(formatNLLong(date)) + " valt buiten de trainingsperiode<br>(" +
+        esc(formatNLShort(START_DATE)) + " – " + esc(formatNLShort(END_DATE)) + ").</p></div>";
     }
 
     var phase = getPhase(date);
     var dow = dowKey(date);
     var wp = WEEKPLANS[phase.id][dow];
     var deload = isDeloadWeek(date);
+    var isRaceDay = iso === PROGRAM_END;
 
     var html = back;
     html += "<h1 class=\"page-title\" style=\"margin-top:10px;\">" + esc(formatNLLong(date)) + "</h1>";
-    html += "<div style=\"margin-bottom:12px;\">" + phaseBadge(phase) + (deload ? "<span class=\"badge outline\">Deload-week</span>" : "") + "</div>";
+    html += "<div style=\"margin-bottom:12px;\">" + phaseBadge(phase) + (deload ? "<span class=\"badge outline\">Deload-week</span>" : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dow]) + " — sessie</h3>";
     html += "<p>" + esc(wp.title) + "</p>";
@@ -1003,6 +1170,21 @@
     }
     html += "</div>";
 
+    html += "<div class=\"card\"><h3 class=\"card-title\">Voortgangsfoto's</h3>";
+    var photos = collectPhotos();
+    if (photos.length) {
+      html += "<div class=\"photo-strip\">";
+      photos.forEach(function (p) {
+        html += "<a class=\"photo-thumb\" href=\"" + esc(p.url) + "\" target=\"_blank\" rel=\"noopener\">" +
+          "<img src=\"" + esc(p.url) + "\" alt=\"\">" +
+          "<span>" + esc(PERSON_LABELS[p.person]) + " · " + esc(formatNLShort(parseISO(p.date))) + "</span></a>";
+      });
+      html += "</div>";
+    } else {
+      html += "<p class=\"muted\">Nog geen foto's toegevoegd. Voeg er een toe via de dagelijkse checklist.</p>";
+    }
+    html += "</div>";
+
     html += "<div class=\"card\"><h3 class=\"card-title\">Nieuwe meting toevoegen</h3>";
     html += "<form id=\"progress-form\">";
     html += "<label class=\"field\">Datum<input type=\"date\" name=\"date\" required value=\"" + toISO(midnight(new Date())) + "\"></label>";
@@ -1062,10 +1244,27 @@
       + "blessureklachten.</div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">Account</h3>";
-    html += "<p class=\"muted\">Ingelogd als profiel: <b>" + esc(PERSON_LABELS[getProfile()] || "-") + "</b></p>";
-    html += "<button class=\"btn btn-outline btn-block\" id=\"switch-profile\">Wissel profiel op dit toestel</button>";
-    html += "<button class=\"btn btn-outline btn-block\" id=\"sign-out\">Log uit</button>";
+    html += "<p class=\"muted\">Ingelogd als: <b>" + esc(PERSON_LABELS[getProfile()] || "-") + "</b></p>";
+    html += "<button class=\"btn btn-outline btn-block\" id=\"switch-profile\">Wissel gebruiker / log uit</button>";
     html += "</div>";
+
+    html += "<div class=\"card\"><h3 class=\"card-title\">Wijzig mijn toegangscode</h3>";
+    html += (PASSWORD_MSG ? "<p class=\"small\">" + esc(PASSWORD_MSG) + "</p>" : "");
+    html += "<form id=\"password-form\">";
+    html += "<label class=\"field\">Huidige code<input type=\"password\" name=\"oldCode\" autocomplete=\"current-password\" required></label>";
+    html += "<label class=\"field\">Nieuwe code (min. 6 tekens)<input type=\"password\" name=\"newCode\" autocomplete=\"new-password\" required minlength=\"6\"></label>";
+    html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Code wijzigen</button>";
+    html += "</form></div>";
+
+    html += "<div class=\"card\"><h3 class=\"card-title\">Programma-instellingen</h3>";
+    html += "<p class=\"small\">Startdatum en wedstrijddag zijn gedeeld — een wijziging herberekent automatisch alle fases en herplant voor jullie beiden.</p>";
+    html += "<form id=\"schedule-form\">";
+    html += "<div class=\"input-grid\">";
+    html += "<label class=\"field\">Startdatum<input type=\"date\" name=\"startDate\" value=\"" + PROGRAM_START + "\" required></label>";
+    html += "<label class=\"field\">Wedstrijddag<input type=\"date\" name=\"raceDate\" value=\"" + PROGRAM_END + "\" required></label>";
+    html += "</div>";
+    html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Opslaan &amp; herberekenen</button>";
+    html += "</form></div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">RPE / RIR</h3>";
     html += tableHTML(["RPE", "RIR", "Gevoel"], RPE_TABLE.map(function (r) { return [esc(r[0]), esc(r[1]), esc(r[2])]; }));
@@ -1091,9 +1290,8 @@
     html += "</div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">Over deze app</h3>";
-    html += "<p class=\"small\">HYROX Gent 2026 Tracker — jullie data wordt gesynchroniseerd via een gedeelde, "
-      + "met een toegangscode beveiligde cloud-database (Firebase). Enkel wie de toegangscode kent kan de data "
-      + "lezen of aanpassen. Maak regelmatig een CSV-export als back-up.</p>";
+    html += "<p class=\"small\">HYROX Tracker — jullie data wordt gesynchroniseerd via een gedeelde cloud-database "
+      + "(Firebase). Elk logt in met een eigen toegangscode. Maak regelmatig een CSV-export als back-up.</p>";
     html += "</div>";
 
     return html;
@@ -1118,7 +1316,7 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
   function exportDaily() {
-    var rows = [["Persoon", "Datum", "TrainingGedaan", "Stappen", "Gewicht(kg)", "Slaap(u)", "EiwitdoelGehaald", "Water(L)", "LoopAfstand(km)", "LoopTempo", "Hartslagzone", "Gevoel"]];
+    var rows = [["Persoon", "Datum", "TrainingGedaan", "Stappen", "Gewicht(kg)", "Slaap(u)", "EiwitdoelGehaald", "CheatDay", "Water(L)", "FotoURL", "LoopAfstand(km)", "LoopTempo", "Hartslagzone", "Gevoel"]];
     ["sean", "vriendin"].forEach(function (person) {
       var dates = {};
       Object.keys(CACHE.daily[person] || {}).forEach(function (d) { dates[d] = true; });
@@ -1126,7 +1324,7 @@
       Object.keys(dates).sort().forEach(function (date) {
         var d = (CACHE.daily[person] || {})[date] || {};
         var r = (CACHE.run[person] || {})[date] || {};
-        rows.push([PERSON_LABELS[person], date, d.training ? "Ja" : "Nee", d.steps || "", d.weight || "", d.sleep || "", d.protein ? "Ja" : "Nee", d.water || "", r.distance || "", r.pace || "", r.hrzone || "", r.feel || ""]);
+        rows.push([PERSON_LABELS[person], date, d.training ? "Ja" : "Nee", d.steps || "", d.weight || "", d.sleep || "", d.protein ? "Ja" : "Nee", d.cheatDay ? "Ja" : "Nee", d.water || "", d.photoURL || "", r.distance || "", r.pace || "", r.hrzone || "", r.feel || ""]);
       });
     });
     downloadCSV("hyrox_dagelijkse_data.csv", rows);
@@ -1195,18 +1393,18 @@
       }
       return;
     }
-    if (!CURRENT_USER) {
-      viewEl.innerHTML = renderLogin();
-      tabbarEl.classList.add("hidden");
-      subEl.textContent = "Inloggen";
-      bindLoginForm();
-      return;
-    }
     if (!getProfile()) {
       viewEl.innerHTML = renderProfilePicker();
       tabbarEl.classList.add("hidden");
       subEl.textContent = "Profiel";
       bindProfilePicker();
+      return;
+    }
+    if (!CURRENT_USER) {
+      viewEl.innerHTML = renderLogin();
+      tabbarEl.classList.add("hidden");
+      subEl.textContent = "Inloggen";
+      bindLoginForm();
       return;
     }
 
@@ -1256,6 +1454,11 @@
 
   function handleFieldChange(e) {
     var t = e.target;
+    if (t.type === "file" && t.dataset && t.dataset.photoUpload) {
+      var file = t.files && t.files[0];
+      if (file) uploadDailyPhoto(t.dataset.photoUpload, file);
+      return;
+    }
     var store = t.dataset ? t.dataset.store : null;
     if (!store) return;
     var date = t.dataset.date;
@@ -1268,6 +1471,13 @@
       saveRun(date, t.dataset.field, t.value);
     } else if (store === "circuit") {
       saveCircuit(date, t.dataset.circuit, parseInt(t.dataset.idx, 10), t.checked);
+    }
+  }
+
+  function handleViewClick(e) {
+    var delPhotoBtn = e.target.closest && e.target.closest("[data-photo-delete]");
+    if (delPhotoBtn) {
+      deleteDailyPhoto(delPhotoBtn.getAttribute("data-photo-delete"));
     }
   }
 
@@ -1305,15 +1515,41 @@
   function bindInfoActions() {
     var switchBtn = document.getElementById("switch-profile");
     if (switchBtn) {
-      switchBtn.addEventListener("click", function () {
-        clearProfile();
-        render();
+      switchBtn.addEventListener("click", function () { switchProfile(); });
+    }
+
+    var pwForm = document.getElementById("password-form");
+    if (pwForm) {
+      pwForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(pwForm);
+        var oldCode = fd.get("oldCode"), newCode = fd.get("newCode");
+        var btn = pwForm.querySelector("button");
+        btn.disabled = true; btn.textContent = "Bezig…";
+        changePassword(oldCode, newCode).then(function () {
+          PASSWORD_MSG = "Toegangscode gewijzigd.";
+          render();
+        }).catch(function (err) {
+          PASSWORD_MSG = err && err.code === "auth/wrong-password"
+            ? "Huidige code klopt niet."
+            : "Wijzigen mislukt. Probeer opnieuw.";
+          render();
+        });
       });
     }
-    var signOutBtn = document.getElementById("sign-out");
-    if (signOutBtn) {
-      signOutBtn.addEventListener("click", function () {
-        doSignOut();
+
+    var schedForm = document.getElementById("schedule-form");
+    if (schedForm) {
+      schedForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fd = new FormData(schedForm);
+        var startDate = fd.get("startDate"), raceDate = fd.get("raceDate");
+        if (!startDate || !raceDate) return;
+        if (parseISO(raceDate).getTime() <= parseISO(startDate).getTime()) {
+          alert("De wedstrijddag moet na de startdatum liggen.");
+          return;
+        }
+        saveProgramSettings(startDate, raceDate);
       });
     }
   }
@@ -1329,6 +1565,7 @@
 
     viewEl.addEventListener("input", handleFieldChange);
     viewEl.addEventListener("change", handleFieldChange);
+    viewEl.addEventListener("click", handleViewClick);
 
     window.addEventListener("hashchange", render);
     if (!location.hash) location.hash = "#/";
