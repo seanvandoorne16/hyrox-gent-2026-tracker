@@ -266,7 +266,7 @@
   var PERSON_LABELS = { sean: "Sean", vriendin: "Vriendin" };
   var PERSON_COLORS = { sean: "#D62828", vriendin: "#2563EB" };
   var PERSON_EMAILS = {
-    sean: "sean@hyrox-gent-2026-tracker.local",
+    sean: "[verwijderd-privé]",
     vriendin: "vriendin@hyrox-gent-2026-tracker.local"
   };
 
@@ -879,6 +879,9 @@
   function attemptLogin(profile, code) {
     LOGIN_ERROR = "";
     var email = PERSON_EMAILS[profile];
+    if (!email || !email.trim()) {
+      return Promise.reject({ code: "auth/config-error", message: "Dit profiel heeft nog geen geldige Firebase-auth email." });
+    }
     return db.collection("meta").doc("setup").get().then(function (snap) {
       var data = snap.exists ? snap.data() : {};
       var normalizedCode = String(code || "").trim();
@@ -894,6 +897,19 @@
         update[profile] = true;
         return db.collection("meta").doc("setup").set(update, { merge: true });
       });
+    });
+  }
+
+  function resetProfilesFromZero() {
+    if (!db) {
+      return Promise.reject({ code: "auth/config-error", message: "Firebase is nog niet beschikbaar." });
+    }
+    return db.collection("meta").doc("setup").delete().catch(function (err) {
+      // OCCASIONALLY the Firestore cache layer is stale; fall back to a neutral empty document.
+      return db.collection("meta").doc("setup").set({}, { merge: true });
+    }).then(function () {
+      LOGIN_ERROR = "Profielsetup gereset. De eerste login start weer vanaf 000000.";
+      return true;
     });
   }
 
@@ -977,6 +993,7 @@
       "<label class=\"field\">Toegangscode<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
       "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
       "</form>" +
+      "<button class=\"btn btn-outline btn-block\" id=\"reset-profiles-zero\">Reset profielen vanaf 0</button>" +
       "<button class=\"btn btn-outline btn-block\" id=\"back-to-picker\">Niet " + esc(PERSON_LABELS[profile]) + "? Kies opnieuw</button>" +
       "</div></div>";
   }
@@ -990,11 +1007,35 @@
         var btn = form.querySelector("button");
         btn.disabled = true; btn.textContent = "Bezig…";
         attemptLogin(getProfile(), code).catch(function (err) {
-          LOGIN_ERROR = err && err.code === "auth/weak-password"
-            ? "Kies een code van minstens 6 tekens."
-            : "Foute toegangscode. Probeer opnieuw.";
+          if (err && err.code === "auth/weak-password") {
+            LOGIN_ERROR = "Kies een code van minstens 6 tekens.";
+          } else if (err && err.code === "auth/user-not-found") {
+            LOGIN_ERROR = "Dit profiel heeft nog geen Firebase-inlogaccount. Gebruik bij eerste gebruik 000000.";
+          } else if (err && err.code === "auth/invalid-login-credentials") {
+            LOGIN_ERROR = "Deze toegangscode past niet bij dit profiel. Controleer de code of kies opnieuw.";
+          } else if (err && err.code === "auth/config-error") {
+            LOGIN_ERROR = err.message;
+          } else if (err && err.message) {
+            LOGIN_ERROR = err.message;
+          } else {
+            LOGIN_ERROR = "Foute toegangscode. Probeer opnieuw.";
+          }
           render();
         });
+      });
+    }
+    var resetBtn = document.getElementById("reset-profiles-zero");
+    if (resetBtn) {
+      resetBtn.addEventListener("click", function () {
+        if (confirm("Weet je zeker dat je de profielsetup vanaf 0 wilt resetten?")) {
+          resetProfilesFromZero().then(function () {
+            LOGIN_ERROR = "Profielsetup is gereset. Gebruik voor eerste login 000000.";
+            render();
+          }).catch(function (err) {
+            LOGIN_ERROR = err && err.message ? err.message : "Reset van profielsetup is mislukt.";
+            render();
+          });
+        }
       });
     }
     var back = document.getElementById("back-to-picker");
