@@ -266,7 +266,7 @@
   var PERSON_LABELS = { sean: "Sean", vriendin: "Vriendin" };
   var PERSON_COLORS = { sean: "#D62828", vriendin: "#2563EB" };
   var PERSON_EMAILS = {
-    sean: "[verwijderd-privé]",
+    sean: "sean@hyrox-gent-2026-tracker.local",
     vriendin: "vriendin@hyrox-gent-2026-tracker.local"
   };
 
@@ -414,35 +414,14 @@
    * 3. PROFIEL (lokaal per toestel: "wie ben jij")
    * ------------------------------------------------------------------ */
 
-  function safeLocalStorageGet(key) {
-    try {
-      return window.localStorage ? window.localStorage.getItem(key) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-  function safeLocalStorageSet(key, value) {
-    try {
-      if (window.localStorage) window.localStorage.setItem(key, value);
-    } catch (e) {
-      console.warn("localStorage unavailable, profile persists only in memory", e);
-    }
-  }
-  function safeLocalStorageRemove(key) {
-    try {
-      if (window.localStorage) window.localStorage.removeItem(key);
-    } catch (e) {
-      console.warn("localStorage unavailable, profile clear skipped", e);
-    }
-  }
   function getProfile() {
-    return safeLocalStorageGet("hyrox_profile");
+    return localStorage.getItem("hyrox_profile");
   }
   function setProfile(p) {
-    safeLocalStorageSet("hyrox_profile", p);
+    localStorage.setItem("hyrox_profile", p);
   }
   function clearProfile() {
-    safeLocalStorageRemove("hyrox_profile");
+    localStorage.removeItem("hyrox_profile");
   }
   function otherProfile() {
     var p = getProfile();
@@ -542,7 +521,6 @@
   var CURRENT_USER = null;
   var LOGIN_ERROR = "";
   var PASSWORD_MSG = "";
-  var PASSWORD_RESET_MSG = "";
   var WEEKMAP_SUGGESTION = null;
   var CACHE = { daily: {}, ex: {}, run: {}, circuit: {}, progress: [], together: {} };
   var listeners = [];
@@ -903,40 +881,19 @@
     var email = PERSON_EMAILS[profile];
     return db.collection("meta").doc("setup").get().then(function (snap) {
       var data = snap.exists ? snap.data() : {};
+      var normalizedCode = String(code || "").trim();
+      var firstUseCode = "000000";
       if (data[profile]) {
-        return auth.signInWithEmailAndPassword(email, code);
+        return auth.signInWithEmailAndPassword(email, normalizedCode);
       }
-      return auth.createUserWithEmailAndPassword(email, code).then(function () {
+      if (normalizedCode !== firstUseCode) {
+        return Promise.reject({ code: "auth/wrong-password", message: "Voor het eerste gebruik is de standaardcode 000000." });
+      }
+      return auth.createUserWithEmailAndPassword(email, normalizedCode).then(function () {
         var update = {};
         update[profile] = true;
         return db.collection("meta").doc("setup").set(update, { merge: true });
       });
-    });
-  }
-
-  function resetLoginCode(profile) {
-    PASSWORD_RESET_MSG = "";
-    LOGIN_ERROR = "";
-    if (!auth || !auth.sendPasswordResetEmail) {
-      PASSWORD_RESET_MSG = "Firebase-auth is nog niet beschikbaar. Controleer je Firebase-configuratie.";
-      render();
-      return Promise.reject(new Error("Firebase auth unavailable"));
-    }
-    var email = PERSON_EMAILS.sean;
-    if (!email) {
-      PASSWORD_RESET_MSG = "Ik kan geen reset-link sturen omdat Sean geen e-mailadres heeft in de configuratie.";
-      render();
-      return Promise.reject(new Error("No Sean email configured"));
-    }
-    return auth.sendPasswordResetEmail(email).then(function () {
-      PASSWORD_RESET_MSG = "Een reset-link is verzonden naar Sean (" + email + "). Gebruik die link om een nieuwe code te kiezen.";
-      render();
-    }).catch(function (err) {
-      PASSWORD_RESET_MSG = "Ik kon geen reset-link sturen naar Sean. Controleer je Firebase-auth account of kies opnieuw.";
-      LOGIN_ERROR = err && err.code === "auth/user-not-found"
-        ? "Het Sean-account is nog niet geregistreerd in Firebase Auth."
-        : "Resetten van de code is niet gelukt. Probeer opnieuw.";
-      render();
     });
   }
 
@@ -1014,14 +971,12 @@
     return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
       "<div class=\"big-icon\">🔒</div>" +
       "<h1 class=\"page-title\">Inloggen als " + esc(PERSON_LABELS[profile]) + "</h1>" +
-      "<p class=\"muted\">Voer je eigen toegangscode in (min. 6 tekens). De eerste keer dat jij inlogt, wordt dit meteen jouw persoonlijke code.</p>" +
+      "<p class=\"muted\">Gebruik bij het eerste gebruik de vaste code <b>000000</b>. Daarna kun je die bij 'Ik' wijzigen naar je eigen toegangscode.</p>" +
       (LOGIN_ERROR ? "<div class=\"warnbox\">" + esc(LOGIN_ERROR) + "</div>" : "") +
-      (PASSWORD_RESET_MSG ? "<div class=\"small\">" + esc(PASSWORD_RESET_MSG) + "</div>" : "") +
       "<form id=\"login-form\">" +
       "<label class=\"field\">Toegangscode<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
       "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
       "</form>" +
-      "<button class=\"btn btn-outline btn-block\" id=\"forgot-login-code\">Code vergeten?</button>" +
       "<button class=\"btn btn-outline btn-block\" id=\"back-to-picker\">Niet " + esc(PERSON_LABELS[profile]) + "? Kies opnieuw</button>" +
       "</div></div>";
   }
@@ -1031,35 +986,14 @@
     if (form) {
       form.addEventListener("submit", function (e) {
         e.preventDefault();
-        var rawCode = new FormData(form).get("code");
-        var code = String(rawCode == null ? "" : rawCode).trim();
+        var code = new FormData(form).get("code");
         var btn = form.querySelector("button");
-        if (code.length < 6) {
-          LOGIN_ERROR = "Kies een code van minstens 6 tekens.";
-          render();
-          return;
-        }
         btn.disabled = true; btn.textContent = "Bezig…";
         attemptLogin(getProfile(), code).catch(function (err) {
           LOGIN_ERROR = err && err.code === "auth/weak-password"
             ? "Kies een code van minstens 6 tekens."
-            : err && err.code === "auth/network-request-failed"
-              ? "Netwerkfout. Controleer je internetverbinding en probeer opnieuw."
-              : "Foute toegangscode. Probeer opnieuw.";
+            : "Foute toegangscode. Probeer opnieuw.";
           render();
-        });
-      });
-    }
-    var forgot = document.getElementById("forgot-login-code");
-    if (forgot) {
-      forgot.addEventListener("click", function () {
-        forgot.disabled = true;
-        forgot.textContent = "Bezig…";
-        resetLoginCode(getProfile()).catch(function () {
-          // kept by resetLoginCode, message is rendered.
-        }).finally(function () {
-          forgot.disabled = false;
-          forgot.textContent = "Code vergeten?";
         });
       });
     }

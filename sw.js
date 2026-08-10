@@ -1,6 +1,6 @@
 /* HYROX Gent 2026 Tracker — service worker: cache-first app-shell voor offline gebruik */
 
-var CACHE_NAME = "hyrox-tracker-v4";
+var CACHE_NAME = "hyrox-tracker-v3";
 var ASSETS = [
   "./",
   "./index.html",
