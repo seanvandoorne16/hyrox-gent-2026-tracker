@@ -531,6 +531,7 @@
   var AUTH_READY = false;
   var CURRENT_USER = null;
   var LOGIN_ERROR = "";
+  var LOGIN_FORGOT_PASSWORD_VISIBLE = false;
   var PASSWORD_MSG = "";
   var WEEKMAP_SUGGESTION = null;
   var CACHE = { daily: {}, ex: {}, run: {}, circuit: {}, progress: [], together: {} };
@@ -934,19 +935,6 @@
     return auth.sendPasswordResetEmail(String(email).trim());
   }
 
-  function resetProfilesFromZero() {
-    if (!db) {
-      return Promise.reject({ code: "auth/config-error", message: "Firebase is nog niet beschikbaar." });
-    }
-    return db.collection("meta").doc("setup").delete().catch(function (err) {
-      // OCCASIONALLY the Firestore cache layer is stale; fall back to a neutral empty document.
-      return db.collection("meta").doc("setup").set({}, { merge: true });
-    }).then(function () {
-      LOGIN_ERROR = "Profielsetup gereset. De eerste login start weer vanaf 000000.";
-      return true;
-    });
-  }
-
   function changePassword(oldCode, newCode) {
     var user = auth.currentUser;
     if (!user) return Promise.reject(new Error("Niet ingelogd."));
@@ -1032,6 +1020,9 @@
 
   function renderLogin() {
     var profile = getProfile();
+    var forgotPasswordButton = LOGIN_FORGOT_PASSWORD_VISIBLE
+      ? "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"forgot-password\">Wachtwoord vergeten?</button>"
+      : "";
     return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
       "<div class=\"big-icon\">🔒</div>" +
       "<h1 class=\"page-title\">Inloggen als " + esc(PERSON_LABELS[profile]) + "</h1>" +
@@ -1041,10 +1032,9 @@
       "<label class=\"field\">Gebruikersnaam (e-mail)<input type=\"email\" name=\"email\" autocomplete=\"username\" required></label>" +
       "<label class=\"field\">Wachtwoord<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
       "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
-      "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"forgot-password\">Wachtwoord vergeten?</button>" +
+      forgotPasswordButton +
       "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"create-account\">Account aanmaken</button>" +
       "</form>" +
-      "<button class=\"btn btn-outline btn-block\" id=\"reset-profiles-zero\">Reset profielen vanaf 0</button>" +
       "<button class=\"btn btn-outline btn-block\" id=\"back-to-picker\">Niet " + esc(PERSON_LABELS[profile]) + "? Kies opnieuw</button>" +
       "</div></div>";
   }
@@ -1065,13 +1055,14 @@
           } else if (err && err.code === "auth/user-not-found") {
             LOGIN_ERROR = "Dit e-mailadres is nog niet bekend in Firebase Auth. Klik op 'Account aanmaken' bij eerste gebruik.";
           } else if (err && err.code === "auth/invalid-login-credentials") {
-            LOGIN_ERROR = "Deze inloggegevens zijn niet correct. Controleer e-mail en wachtwoord. Wachtwoord vergeten?";
+            LOGIN_ERROR = "Deze inloggegevens zijn niet correct. Controleer e-mail en wachtwoord.";
           } else if (err && err.code === "auth/invalid-email") {
             LOGIN_ERROR = "Vul een geldig e-mailadres in.";
           } else if (err && err.code === "auth/config-error") {
             LOGIN_ERROR = err.message;
           } else if (err && err.code === "auth/wrong-password") {
             LOGIN_ERROR = "Wachtwoord klopt niet. Gebruik 'Wachtwoord vergeten?' om een reset-link te krijgen.";
+            LOGIN_FORGOT_PASSWORD_VISIBLE = true;
           } else if (err && err.message) {
             LOGIN_ERROR = err.message;
           } else {
@@ -1118,25 +1109,12 @@
         var email = data ? String(data.get("email") || "").trim() : "";
         requestPasswordReset(email).then(function () {
           LOGIN_ERROR = "Een reset-link is verzonden naar jouw e-mailadres.";
+          LOGIN_FORGOT_PASSWORD_VISIBLE = false;
           render();
         }).catch(function (err) {
           LOGIN_ERROR = err && err.message ? err.message : "Reset-link kon niet worden verzonden.";
           render();
         });
-      });
-    }
-    var resetBtn = document.getElementById("reset-profiles-zero");
-    if (resetBtn) {
-      resetBtn.addEventListener("click", function () {
-        if (confirm("Weet je zeker dat je de profielsetup vanaf 0 wilt resetten?")) {
-          resetProfilesFromZero().then(function () {
-            LOGIN_ERROR = "Profielsetup is gereset. Gebruik voor eerste login 000000.";
-            render();
-          }).catch(function (err) {
-            LOGIN_ERROR = err && err.message ? err.message : "Reset van profielsetup is mislukt.";
-            render();
-          });
-        }
       });
     }
     var back = document.getElementById("back-to-picker");
