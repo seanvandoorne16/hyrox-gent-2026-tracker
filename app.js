@@ -270,7 +270,6 @@
     vriendin: "vriendin@hyrox-gent-2026-tracker.local"
   };
   var ADMIN_EMAILS = [
-    "admin@local",
     "[verwijderd-privé]"
   ];
 
@@ -1967,14 +1966,6 @@
       tabbarEl.classList.add("hidden");
       subEl.textContent = "Inloggen";
       bindLoginForm();
-      return;
-    }
-
-    if (isAdminUser()) {
-      viewEl.innerHTML = renderAdmin();
-      tabbarEl.classList.add("hidden");
-      subEl.textContent = "Admin";
-      bindAdminPanel();
       return;
     }
 
