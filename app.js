@@ -269,6 +269,10 @@
     sean: "[verwijderd-privé]",
     vriendin: "vriendin@hyrox-gent-2026-tracker.local"
   };
+  var ADMIN_EMAILS = [
+    "admin@hyrox-gent-2026-tracker.local",
+    "[verwijderd-privé]"
+  ];
 
   /* ------------------------------------------------------------------ *
    * 2. DATUM-HELPERS + DYNAMISCH SCHEMA (start-/wedstrijddatum instelbaar)
@@ -874,30 +878,32 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  /* ---- login (individuele toegangscode per profiel) ---- */
+  /* ---- login (gebruikersnaam/e-mail + wachtwoord) ---- */
 
-  function attemptLogin(profile, code) {
+  function attemptLogin(profile, password, emailOverride) {
     LOGIN_ERROR = "";
-    var email = PERSON_EMAILS[profile];
-    if (!email || !email.trim()) {
-      return Promise.reject({ code: "auth/config-error", message: "Dit profiel heeft nog geen geldige Firebase-auth email." });
+    var email = (emailOverride || PERSON_EMAILS[profile] || "").trim();
+    if (!email || !email.indexOf("@") || email.length < 4) {
+      return Promise.reject({ code: "auth/config-error", message: "Gebruik een geldig e-mailadres om in te loggen." });
     }
-    return db.collection("meta").doc("setup").get().then(function (snap) {
-      var data = snap.exists ? snap.data() : {};
-      var normalizedCode = String(code || "").trim();
-      var firstUseCode = "000000";
-      if (data[profile]) {
-        return auth.signInWithEmailAndPassword(email, normalizedCode);
-      }
-      if (normalizedCode !== firstUseCode) {
-        return Promise.reject({ code: "auth/wrong-password", message: "Voor het eerste gebruik is de standaardcode 000000." });
-      }
-      return auth.createUserWithEmailAndPassword(email, normalizedCode).then(function () {
-        var update = {};
-        update[profile] = true;
-        return db.collection("meta").doc("setup").set(update, { merge: true });
-      });
-    });
+    var normalizedPassword = String(password || "").trim();
+    if (!normalizedPassword) {
+      return Promise.reject({ code: "auth/wrong-password", message: "Vul je wachtwoord in." });
+    }
+    if (!auth || !auth.signInWithEmailAndPassword) {
+      return Promise.reject({ code: "auth/config-error", message: "Firebase Auth is nog niet klaar." });
+    }
+    return auth.signInWithEmailAndPassword(email, normalizedPassword);
+  }
+
+  function requestPasswordReset(email) {
+    if (!auth || !auth.sendPasswordResetEmail) {
+      return Promise.reject({ code: "auth/config-error", message: "Firebase Auth is nog niet klaar." });
+    }
+    if (!email || !String(email).trim() || String(email).indexOf("@") === -1) {
+      return Promise.reject({ code: "auth/invalid-email", message: "Vul eerst een geldig e-mailadres in." });
+    }
+    return auth.sendPasswordResetEmail(String(email).trim());
   }
 
   function resetProfilesFromZero() {
@@ -987,11 +993,13 @@
     return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
       "<div class=\"big-icon\">🔒</div>" +
       "<h1 class=\"page-title\">Inloggen als " + esc(PERSON_LABELS[profile]) + "</h1>" +
-      "<p class=\"muted\">Gebruik bij het eerste gebruik de vaste code <b>000000</b>. Daarna kun je die bij 'Ik' wijzigen naar je eigen toegangscode.</p>" +
+      "<p class=\"muted\">Log in met je gebruikersnaam (e-mail) en wachtwoord. Je krijgt daarna toegang tot je eigen data.</p>" +
       (LOGIN_ERROR ? "<div class=\"warnbox\">" + esc(LOGIN_ERROR) + "</div>" : "") +
       "<form id=\"login-form\">" +
-      "<label class=\"field\">Toegangscode<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
+      "<label class=\"field\">Gebruikersnaam (e-mail)<input type=\"email\" name=\"email\" autocomplete=\"username\" required></label>" +
+      "<label class=\"field\">Wachtwoord<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
       "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
+      "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"forgot-password\">Wachtwoord vergeten?</button>" +
       "</form>" +
       "<button class=\"btn btn-outline btn-block\" id=\"reset-profiles-zero\">Reset profielen vanaf 0</button>" +
       "<button class=\"btn btn-outline btn-block\" id=\"back-to-picker\">Niet " + esc(PERSON_LABELS[profile]) + "? Kies opnieuw</button>" +
@@ -1003,23 +1011,42 @@
     if (form) {
       form.addEventListener("submit", function (e) {
         e.preventDefault();
-        var code = new FormData(form).get("code");
-        var btn = form.querySelector("button");
+        var data = new FormData(form);
+        var email = String(data.get("email") || "").trim();
+        var password = String(data.get("code") || "").trim();
+        var btn = form.querySelector("button[type='submit']");
         btn.disabled = true; btn.textContent = "Bezig…";
-        attemptLogin(getProfile(), code).catch(function (err) {
+        attemptLogin(getProfile(), password, email).catch(function (err) {
           if (err && err.code === "auth/weak-password") {
             LOGIN_ERROR = "Kies een code van minstens 6 tekens.";
           } else if (err && err.code === "auth/user-not-found") {
-            LOGIN_ERROR = "Dit profiel heeft nog geen Firebase-inlogaccount. Gebruik bij eerste gebruik 000000.";
+            LOGIN_ERROR = "Dit e-mailadres is nog niet bekend in Firebase Auth.";
           } else if (err && err.code === "auth/invalid-login-credentials") {
-            LOGIN_ERROR = "Deze toegangscode past niet bij dit profiel. Controleer de code of kies opnieuw.";
+            LOGIN_ERROR = "Deze inloggegevens zijn niet correct. Controleer e-mail en wachtwoord.";
+          } else if (err && err.code === "auth/invalid-email") {
+            LOGIN_ERROR = "Vul een geldig e-mailadres in.";
           } else if (err && err.code === "auth/config-error") {
             LOGIN_ERROR = err.message;
           } else if (err && err.message) {
             LOGIN_ERROR = err.message;
           } else {
-            LOGIN_ERROR = "Foute toegangscode. Probeer opnieuw.";
+            LOGIN_ERROR = "Fout bij inloggen. Probeer opnieuw.";
           }
+          render();
+        });
+      });
+    }
+    var forgot = document.getElementById("forgot-password");
+    if (forgot) {
+      forgot.addEventListener("click", function () {
+        var form = document.getElementById("login-form");
+        var data = form ? new FormData(form) : null;
+        var email = data ? String(data.get("email") || "").trim() : "";
+        requestPasswordReset(email).then(function () {
+          LOGIN_ERROR = "Een reset-link is verzonden naar jouw e-mailadres.";
+          render();
+        }).catch(function (err) {
+          LOGIN_ERROR = err && err.message ? err.message : "Reset-link kon niet worden verzonden.";
           render();
         });
       });
