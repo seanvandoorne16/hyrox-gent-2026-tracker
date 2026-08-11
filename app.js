@@ -726,6 +726,29 @@
       .catch(function (e) { console.error("saveEx", e); });
   }
 
+  function addCustomExercise(iso) {
+    var person = getProfile();
+    var label = prompt("Naam van de aanvullende oefening", "Bijv. TRX row of dumbbell carry");
+    if (!label || !String(label).trim()) return;
+    var exName = String(label).trim();
+    if (!exName) return;
+    saveEx(iso, exName, "custom", true);
+    saveEx(iso, exName, "weight", "");
+    saveEx(iso, exName, "reps", "");
+    saveEx(iso, exName, "status", "planned");
+    saveEx(iso, exName, "alternative", "");
+  }
+
+  function deleteExercise(iso, exName) {
+    var person = getProfile();
+    if (!db) return;
+    var key = person + "_" + iso + "_" + slug(exName);
+    if (CACHE.ex[person] && CACHE.ex[person][iso] && CACHE.ex[person][iso][exName]) {
+      delete CACHE.ex[person][iso][exName];
+    }
+    db.collection("exercises").doc(key).delete().catch(function (e) { console.error("deleteExercise", e); });
+  }
+
   function saveRun(iso, field, value) {
     var person = getProfile();
     CACHE.run[person] = CACHE.run[person] || {};
@@ -1361,21 +1384,47 @@
       var setsReps = s[0], rpe = s[1], rest = s[2], prog = s[3];
       var saved = exData[name] || {};
       var nameHTML = EXERCISE_INFO[name] ? infoPop(name, EXERCISE_INFO[name]) : esc(name);
+      var status = saved.status || "planned";
+      var alt = saved.alternative || "";
       html += "<div class=\"ex-row\">";
       html += "<div class=\"ex-name\">" + nameHTML + "</div>";
       html += "<div class=\"ex-presc\">" + esc(setsReps) + " · " + infoPop("RPE " + rpe, RPE_INFO_TEXT) + " · rust " + esc(rest) + "</div>";
       html += "<div class=\"ex-note\">" + esc(prog) + "</div>";
       html += "<div class=\"ex-inputs\">";
-      html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + (saved.weight || "") + "\"></label>";
-      html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + (saved.reps || "") + "\"></label>";
+      html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + esc(saved.weight || "") + "\"></label>";
+      html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + esc(saved.reps || "") + "\"></label>";
+      html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], status, "ex", iso, "status", name) + "</label>";
+      html += "<label>Alternatief / invulling<input type=\"text\" placeholder=\"bv. lat pulldown in plaats van Smith Machine\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"alternative\" value=\"" + esc(alt) + "\"></label>";
       html += "</div></div>";
     });
+    var customRows = Object.keys(exData || {}).filter(function (name) {
+      return !(exList.some(function (pair) { return pair[0] === name; }));
+    });
+    customRows.forEach(function (name) {
+      var saved = exData[name] || {};
+      if (saved.custom !== true) return;
+      html += "<div class=\"ex-row custom-row\">";
+      html += "<div class=\"ex-name\">" + esc(name) + "</div>";
+      html += "<div class=\"ex-presc\">Aangepaste oefening</div>";
+      html += "<div class=\"ex-note\">" + esc(saved.alternative || "") + "</div>";
+      html += "<div class=\"ex-inputs\">";
+      html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + esc(saved.weight || "") + "\"></label>";
+      html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + esc(saved.reps || "") + "\"></label>";
+      html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], saved.status || "planned", "ex", iso, "status", name) + "</label>";
+      html += "<label>Alternatief / invulling<input type=\"text\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"alternative\" value=\"" + esc(saved.alternative || "") + "\"></label>";
+      html += "<button type=\"button\" class=\"btn btn-danger btn-sm\" data-delete-exercise=\"" + esc(name) + "\" data-date=\"" + iso + "\">Verwijderen</button>";
+      html += "</div></div>";
+    });
+    html += "<div class=\"row-spacer\"></div>";
+    html += "<button type=\"button\" class=\"btn btn-outline btn-block\" data-add-custom-exercise=\"" + iso + "\">+ Oefening toevoegen</button>";
     html += "<p class=\"small\">Startgewicht-richtlijn: " + esc(STARTW.MAIN) + " Techniek gaat altijd vóór gewicht.</p>";
     return html;
   }
 
-  function selectHTML(options, current, store, date, field) {
-    var h = "<select data-store=\"" + store + "\" data-date=\"" + date + "\" data-field=\"" + field + "\">";
+  function selectHTML(options, current, store, date, field, exName) {
+    var h = "<select data-store=\"" + store + "\" data-date=\"" + date + "\"";
+    if (exName) h += " data-ex=\"" + esc(exName) + "\"";
+    h += " data-field=\"" + field + "\">";
     options.forEach(function (o) {
       var val = o, label = o === "" ? "–" : o;
       h += "<option value=\"" + esc(val) + "\"" + (current === val ? " selected" : "") + ">" + esc(label) + "</option>";
@@ -2041,6 +2090,20 @@
 
     var icsBtn = e.target.closest && e.target.closest("[data-together-ics]");
     if (icsBtn) { downloadICS(icsBtn.getAttribute("data-together-ics"), icsBtn.getAttribute("data-together-time")); return; }
+
+    var addCustom = e.target.closest && e.target.closest("[data-add-custom-exercise]");
+    if (addCustom) { addCustomExercise(addCustom.getAttribute("data-add-custom-exercise")); render(); return; }
+
+    var deleteExBtn = e.target.closest && e.target.closest("[data-delete-exercise]");
+    if (deleteExBtn) {
+      var iso = deleteExBtn.getAttribute("data-date");
+      var exName = deleteExBtn.getAttribute("data-delete-exercise");
+      if (confirm("Deze oefening verwijderen?")) {
+        deleteExercise(iso, exName);
+        render();
+      }
+      return;
+    }
   }
 
   function bindProgressView() {
