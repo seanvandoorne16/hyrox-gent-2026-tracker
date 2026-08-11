@@ -270,7 +270,7 @@
     vriendin: "vriendin@hyrox-gent-2026-tracker.local"
   };
   var ADMIN_EMAILS = [
-    "admin@hyrox-gent-2026-tracker.local",
+    "admin@local",
     "[verwijderd-privé]"
   ];
 
