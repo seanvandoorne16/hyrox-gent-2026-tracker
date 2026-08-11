@@ -274,6 +274,14 @@
     "[verwijderd-privé]"
   ];
 
+  function isAdminUser() {
+    var user = auth && auth.currentUser ? auth.currentUser : null;
+    var email = user && user.email ? String(user.email).trim().toLowerCase() : "";
+    return !!email && ADMIN_EMAILS.some(function (adminEmail) {
+      return String(adminEmail).trim().toLowerCase() === email;
+    });
+  }
+
   /* ------------------------------------------------------------------ *
    * 2. DATUM-HELPERS + DYNAMISCH SCHEMA (start-/wedstrijddatum instelbaar)
    * ------------------------------------------------------------------ */
@@ -896,6 +904,27 @@
     return auth.signInWithEmailAndPassword(email, normalizedPassword);
   }
 
+  function attemptCreateAccount(profile, email, password) {
+    LOGIN_ERROR = "";
+    var normalizedEmail = String(email || "").trim().toLowerCase();
+    var normalizedPassword = String(password || "").trim();
+    if (!normalizedEmail || normalizedEmail.indexOf("@") === -1 || normalizedEmail.length < 4) {
+      return Promise.reject({ code: "auth/invalid-email", message: "Vul een geldig e-mailadres in." });
+    }
+    if (normalizedPassword.length < 6) {
+      return Promise.reject({ code: "auth/weak-password", message: "Kies een wachtwoord van minstens 6 tekens." });
+    }
+    if (!auth || !auth.createUserWithEmailAndPassword) {
+      return Promise.reject({ code: "auth/config-error", message: "Firebase Auth is nog niet klaar." });
+    }
+    return auth.createUserWithEmailAndPassword(normalizedEmail, normalizedPassword).then(function () {
+      // Register een first-time setup marker so this profile becomes recognized in the app.
+      var update = {};
+      update[profile] = true;
+      return db.collection("meta").doc("setup").set(update, { merge: true });
+    });
+  }
+
   function requestPasswordReset(email) {
     if (!auth || !auth.sendPasswordResetEmail) {
       return Promise.reject({ code: "auth/config-error", message: "Firebase Auth is nog niet klaar." });
@@ -988,6 +1017,20 @@
       "</div></div>";
   }
 
+  function renderAdmin() {
+    return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
+      "<div class=\"big-icon\">👑</div>" +
+      "<h1 class=\"page-title\">Admin beheer</h1>" +
+      "<p class=\"muted\">Je bent ingelogd als admin. Je kunt wachtwoord-reset links verzenden, maar gebruikers verwijderen moet via Firebase Console.</p>" +
+      (LOGIN_ERROR ? "<div class=\"warnbox\">" + esc(LOGIN_ERROR) + "</div>" : "") +
+      "<form id=\"admin-reset-form\">" +
+      "<label class=\"field\">Gebruikers-e-mail om wachtwoord reset te sturen<input type=\"email\" name=\"admin-email\" autocomplete=\"username\" required></label>" +
+      "<button type=\"submit\" class=\"btn btn-primary btn-block\">Reset wachtwoord versturen</button>" +
+      "</form>" +
+      "<button class=\"btn btn-outline btn-block\" id=\"admin-go-dashboard\">Ga naar dashboard</button>" +
+      "</div></div>";
+  }
+
   function renderLogin() {
     var profile = getProfile();
     return "<div class=\"gate-wrap\"><div class=\"card gate-card\">" +
@@ -1000,6 +1043,7 @@
       "<label class=\"field\">Wachtwoord<input type=\"password\" name=\"code\" autocomplete=\"current-password\" required minlength=\"6\"></label>" +
       "<button type=\"submit\" class=\"btn btn-primary btn-block\">Inloggen</button>" +
       "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"forgot-password\">Wachtwoord vergeten?</button>" +
+      "<button type=\"button\" class=\"btn btn-outline btn-block\" id=\"create-account\">Account aanmaken</button>" +
       "</form>" +
       "<button class=\"btn btn-outline btn-block\" id=\"reset-profiles-zero\">Reset profielen vanaf 0</button>" +
       "<button class=\"btn btn-outline btn-block\" id=\"back-to-picker\">Niet " + esc(PERSON_LABELS[profile]) + "? Kies opnieuw</button>" +
@@ -1020,17 +1064,48 @@
           if (err && err.code === "auth/weak-password") {
             LOGIN_ERROR = "Kies een code van minstens 6 tekens.";
           } else if (err && err.code === "auth/user-not-found") {
-            LOGIN_ERROR = "Dit e-mailadres is nog niet bekend in Firebase Auth.";
+            LOGIN_ERROR = "Dit e-mailadres is nog niet bekend in Firebase Auth. Klik op 'Account aanmaken' bij eerste gebruik.";
           } else if (err && err.code === "auth/invalid-login-credentials") {
-            LOGIN_ERROR = "Deze inloggegevens zijn niet correct. Controleer e-mail en wachtwoord.";
+            LOGIN_ERROR = "Deze inloggegevens zijn niet correct. Controleer e-mail en wachtwoord. Wachtwoord vergeten?";
           } else if (err && err.code === "auth/invalid-email") {
             LOGIN_ERROR = "Vul een geldig e-mailadres in.";
           } else if (err && err.code === "auth/config-error") {
             LOGIN_ERROR = err.message;
+          } else if (err && err.code === "auth/wrong-password") {
+            LOGIN_ERROR = "Wachtwoord klopt niet. Gebruik 'Wachtwoord vergeten?' om een reset-link te krijgen.";
           } else if (err && err.message) {
             LOGIN_ERROR = err.message;
           } else {
             LOGIN_ERROR = "Fout bij inloggen. Probeer opnieuw.";
+          }
+          render();
+        });
+      });
+    }
+    var createAccount = document.getElementById("create-account");
+    if (createAccount) {
+      createAccount.addEventListener("click", function () {
+        var form = document.getElementById("login-form");
+        if (!form) return;
+        var data = new FormData(form);
+        var email = String(data.get("email") || "").trim();
+        var password = String(data.get("code") || "").trim();
+        var profile = getProfile() || "sean";
+        var btn = createAccount;
+        btn.disabled = true;
+        btn.textContent = "Aanmaken…";
+        attemptCreateAccount(profile, email, password).then(function () {
+          LOGIN_ERROR = "Account aangemaakt. Je kunt nu inloggen.";
+          render();
+        }).catch(function (err) {
+          if (err && err.code === "auth/email-already-in-use") {
+            LOGIN_ERROR = "Dit e-mailadres bestaat al. Gebruik 'Wachtwoord vergeten?' als je je wachtwoord niet meer weet.";
+          } else if (err && err.code === "auth/weak-password") {
+            LOGIN_ERROR = "Kies een wachtwoord van minstens 6 tekens.";
+          } else if (err && err.message) {
+            LOGIN_ERROR = err.message;
+          } else {
+            LOGIN_ERROR = "Account aanmaken is mislukt.";
           }
           render();
         });
@@ -1067,6 +1142,32 @@
     }
     var back = document.getElementById("back-to-picker");
     if (back) back.addEventListener("click", function () { clearProfile(); render(); });
+  }
+
+  function bindAdminPanel() {
+    var form = document.getElementById("admin-reset-form");
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var data = new FormData(form);
+        var email = String(data.get("admin-email") || "").trim();
+        requestPasswordReset(email).then(function () {
+          LOGIN_ERROR = "Reset-link is naar " + email + " gestuurd.";
+          render();
+        }).catch(function (err) {
+          LOGIN_ERROR = err && err.message ? err.message : "Reset-link kon niet worden verzonden.";
+          render();
+        });
+      });
+    }
+    var dashboard = document.getElementById("admin-go-dashboard");
+    if (dashboard) {
+      dashboard.addEventListener("click", function () {
+        LOGIN_ERROR = "";
+        tabbarEl.classList.remove("hidden");
+        render();
+      });
+    }
   }
 
   function bindProfilePicker() {
@@ -1866,6 +1967,14 @@
       tabbarEl.classList.add("hidden");
       subEl.textContent = "Inloggen";
       bindLoginForm();
+      return;
+    }
+
+    if (isAdminUser()) {
+      viewEl.innerHTML = renderAdmin();
+      tabbarEl.classList.add("hidden");
+      subEl.textContent = "Admin";
+      bindAdminPanel();
       return;
     }
 
