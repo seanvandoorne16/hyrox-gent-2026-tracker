@@ -119,6 +119,8 @@ h3.card-title {
   color: var(--navy);
 }
 @media (prefers-color-scheme: dark) { h3.card-title { color: #9DB4E8; } }
+h4.ex-role-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); margin: 14px 0 6px; }
+h4.ex-role-title:first-of-type { margin-top: 0; }
 
 p { line-height: 1.45; font-size: 13.5px; }
 .muted { color: var(--muted); font-size: 12.5px; }
@@ -269,6 +271,7 @@ tr:nth-child(even) td { background: rgba(127,127,127,0.06); }
   margin-bottom: 10px;
 }
 .ex-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+.ex-alt-note { font-size: 11px; color: var(--muted); margin: -2px 0 4px; }
 .ex-presc { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .ex-note { font-size: 11.5px; color: var(--muted); font-style: italic; margin-bottom: 8px; }
 .ex-hint { font-size: 11.5px; color: var(--green); font-weight: 600; margin: -4px 0 8px; }
@@ -479,3 +482,85 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { background: var(--red); }
 .toast.success { background: var(--green); }
+
+/* ---------- video-knop bij oefeningen ---------- */
+.video-btn {
+  display: inline-block;
+  margin: -2px 0 8px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.video-btn.has-video { border-color: var(--red); color: var(--red); }
+
+/* ---------- video-popup (draggable mini-player) ---------- */
+.video-popup {
+  position: fixed;
+  right: 12px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  width: min(280px, calc(100vw - 24px));
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  z-index: 50;
+}
+.video-popup.maximized {
+  left: 0 !important;
+  top: 0 !important;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+}
+.video-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 8px 8px 12px;
+  background: var(--navy);
+  color: #fff;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.video-popup-header:active { cursor: grabbing; }
+.video-popup-title {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.video-popup-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.video-popup-btn {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.video-popup-body {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.video-popup.maximized .video-popup-body { height: calc(100% - 42px); aspect-ratio: auto; }
+.video-popup-body iframe, .video-popup-body video {
+  width: 100%; height: 100%; border: 0; display: block;
+}

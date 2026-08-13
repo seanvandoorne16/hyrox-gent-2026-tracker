@@ -115,6 +115,55 @@
   ];
   var EX_LISTS = { upper: UPPER_EX, legs: LEGS_EX, fullbody: FULLBODY_EX };
 
+  var CAT_LABELS = { MAIN: "Hoofdoefening", MAIN2: "Hoofdoefening 2", ACC: "Accessoire", CORE: "Core", CARRY: "Carry/dragen", COND: "Conditionering" };
+
+  // Database om extra oefeningen uit te kiezen (naast de vaste standaardlijst) — zie
+  // "Ik" → "Mijn oefeningen". Bevat ook de bestaande standaardoefeningen, zodat die na
+  // een "Herstel standaardlijst" makkelijk terug individueel toe te voegen zijn.
+  var EXERCISE_DATABASE = {
+    upper: [
+      ["Bench press", "MAIN"], ["Incline dumbbell press", "ACC"],
+      ["Lat pulldown of pull-up", "MAIN2"], ["Seated cable row", "ACC"],
+      ["Shoulder press", "ACC"], ["Lateral raises", "ACC"],
+      ["Triceps pushdown", "ACC"], ["Biceps curl", "ACC"], ["Plank", "CORE"],
+      ["Chest press machine", "ACC"], ["Cable fly", "ACC"], ["Face pull", "ACC"],
+      ["Overhead triceps extension", "ACC"], ["Hammer curl", "ACC"],
+      ["Chin-up", "MAIN2"], ["Arnold press", "ACC"], ["Side plank", "CORE"]
+    ],
+    legs: [
+      ["Back squat of leg press", "MAIN"], ["Romanian deadlift", "MAIN2"],
+      ["Bulgarian split squat", "ACC"], ["Walking lunges", "ACC"],
+      ["Leg curl", "ACC"], ["Calf raises", "ACC"],
+      ["Core (weighted plank / hanging knee raise)", "CORE"],
+      ["Leg extension", "ACC"], ["Hip thrust", "MAIN2"], ["Goblet squat", "MAIN"],
+      ["Step-up", "ACC"], ["Glute bridge", "ACC"], ["Seated calf raise", "ACC"],
+      ["Hanging knee raise", "CORE"]
+    ],
+    fullbody: [
+      ["Deadlift of trap bar deadlift", "MAIN"], ["Front squat of goblet squat", "MAIN2"],
+      ["Push press", "ACC"], ["Pull-ups/lat pulldown", "ACC"],
+      ["Dumbbell row", "ACC"], ["Farmers carry", "CARRY"], ["Wall balls", "COND"],
+      ["Kettlebell swing", "COND"], ["Clean and press", "MAIN2"], ["Sled push", "CARRY"],
+      ["Burpees", "COND"], ["Thrusters", "COND"], ["Box jump", "COND"], ["Battle ropes", "COND"]
+    ]
+  };
+
+  // Alle oefeningnamen uit de standaardlijsten + de database, gededupliceerd.
+  function getAllExerciseNames() {
+    var seen = {}, names = [];
+    [UPPER_EX, LEGS_EX, FULLBODY_EX, EXERCISE_DATABASE.upper, EXERCISE_DATABASE.legs, EXERCISE_DATABASE.fullbody].forEach(function (list) {
+      list.forEach(function (pair) { if (!seen[pair[0]]) { seen[pair[0]] = true; names.push(pair[0]); } });
+    });
+    return names;
+  }
+
+  // De effectieve oefeningenlijst voor een rol/persoon: eigen samenstelling
+  // (PERSONAL[person].exerciseList[role]) indien aanwezig en niet leeg, anders de standaardlijst.
+  function exListFor(role, person) {
+    var custom = PERSONAL[person] && PERSONAL[person].exerciseList && PERSONAL[person].exerciseList[role];
+    return (custom && custom.length) ? custom : EX_LISTS[role];
+  }
+
   var EXERCISE_ALTERNATIVES = {
     "Bench press": [
       { label: "Smith Machine Bench", sets: "4x8", rpe: "7", rest: "90 sec" },
@@ -158,15 +207,6 @@
       { label: "Leg Press", sets: "4x10", rpe: "7", rest: "75 sec" }
     ]
   };
-
-  // Alle oefeningnamen (uit UPPER_EX/LEGS_EX/FULLBODY_EX), gededupliceerd, in vaste volgorde.
-  function getAllExerciseNames() {
-    var seen = {}, names = [];
-    [UPPER_EX, LEGS_EX, FULLBODY_EX].forEach(function (list) {
-      list.forEach(function (pair) { if (!seen[pair[0]]) { seen[pair[0]] = true; names.push(pair[0]); } });
-    });
-    return names;
-  }
 
   // Voorgestelde alternatieven voor een oefening: vaste lijst (EXERCISE_ALTERNATIVES) minus wat de
   // gebruiker zelf verwijderde (PERSONAL[person].hiddenAlternatives), plus eigen toegevoegde machines
@@ -935,6 +975,25 @@
     savePersonalPatch(patch);
   }
 
+  function saveExerciseList(role, list) {
+    var patch = { exerciseList: {} };
+    patch.exerciseList[role] = list;
+    savePersonalPatch(patch);
+  }
+  function addExerciseToList(role, name, cat, person) {
+    var current = exListFor(role, person).slice();
+    if (current.some(function (p) { return p[0] === name; })) return;
+    current.push([name, cat]);
+    saveExerciseList(role, current);
+  }
+  function removeExerciseFromList(role, name, person) {
+    var current = exListFor(role, person).filter(function (p) { return p[0] !== name; });
+    saveExerciseList(role, current);
+  }
+  function resetExerciseList(role) {
+    saveExerciseList(role, []);
+  }
+
   function savePause(start, end, reason) {
     var person = getProfile();
     var pauses = ((PERSONAL[person] && PERSONAL[person].pauses) || []).slice();
@@ -1101,6 +1160,7 @@
     clearProfile();
     WEEKMAP_SUGGESTION = null;
     ADMIN_PANEL_DISMISSED = false;
+    closeVideoPopup();
     if (auth) auth.signOut();
     render();
   }
@@ -1181,6 +1241,111 @@
       showTogetherNotification("Samen trainen bevestigd",
         (PERSON_LABELS[d.confirmedBy] || d.confirmedBy) + " bevestigde jullie sessie op " + formatNLShort(parseISO(d.date)) + " om " + d.time + ".");
     }
+  }
+
+  /* ---- video-popup: kleine, verplaatsbare/sluitbare oefeningsvideo (YouTube/Vimeo/mp4) ---- */
+
+  function saveExerciseVideo(key, url) {
+    var patch = { exerciseVideos: {} };
+    patch.exerciseVideos[key] = url;
+    savePersonalPatch(patch);
+  }
+  function getExerciseVideo(key, person) {
+    return (PERSONAL[person] && PERSONAL[person].exerciseVideos && PERSONAL[person].exerciseVideos[key]) || "";
+  }
+
+  function toEmbedInfo(url) {
+    url = String(url || "").trim();
+    if (!url) return null;
+    var yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/i);
+    if (yt) return { type: "iframe", src: "https://www.youtube.com/embed/" + yt[1] + "?autoplay=1&playsinline=1" };
+    var vimeo = url.match(/vimeo\.com\/(\d+)/i);
+    if (vimeo) return { type: "iframe", src: "https://player.vimeo.com/video/" + vimeo[1] + "?autoplay=1" };
+    if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return { type: "video", src: url };
+    if (/^https?:\/\//i.test(url)) return { type: "iframe", src: url };
+    return null;
+  }
+
+  var videoPopupEl = null;
+  function closeVideoPopup() {
+    if (videoPopupEl) { videoPopupEl.remove(); videoPopupEl = null; }
+  }
+  function bindVideoPopupDrag(el) {
+    var handle = el.querySelector("[data-video-drag-handle]");
+    var dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    handle.addEventListener("pointerdown", function (e) {
+      if (el.classList.contains("maximized")) return;
+      dragging = true;
+      var rect = el.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startLeft = rect.left; startTop = rect.top;
+      el.style.right = "auto"; el.style.bottom = "auto";
+      el.style.left = startLeft + "px"; el.style.top = startTop + "px";
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* niet ondersteund */ }
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - startX, dy = e.clientY - startY;
+      var maxLeft = Math.max(0, window.innerWidth - el.offsetWidth);
+      var maxTop = Math.max(0, window.innerHeight - el.offsetHeight);
+      el.style.left = Math.min(Math.max(0, startLeft + dx), maxLeft) + "px";
+      el.style.top = Math.min(Math.max(0, startTop + dy), maxTop) + "px";
+    });
+    function stopDrag() { dragging = false; }
+    handle.addEventListener("pointerup", stopDrag);
+    handle.addEventListener("pointercancel", stopDrag);
+  }
+  function openVideoPopup(key, url, person) {
+    var embed = toEmbedInfo(url);
+    if (!embed) { showToast("Kon deze video-link niet herkennen (gebruik YouTube, Vimeo of een directe .mp4-link).", "error"); return; }
+    closeVideoPopup();
+    var el = document.createElement("div");
+    el.className = "video-popup";
+    el.innerHTML =
+      "<div class=\"video-popup-header\" data-video-drag-handle>" +
+      "<span class=\"video-popup-title\"></span>" +
+      "<div class=\"video-popup-actions\">" +
+      "<button type=\"button\" class=\"video-popup-btn\" data-video-edit title=\"Link wijzigen\">✎</button>" +
+      "<button type=\"button\" class=\"video-popup-btn\" data-video-max title=\"Volledig scherm\">⛶</button>" +
+      "<button type=\"button\" class=\"video-popup-btn\" data-video-close title=\"Sluiten\">×</button>" +
+      "</div></div>" +
+      "<div class=\"video-popup-body\"></div>";
+    el.querySelector(".video-popup-title").textContent = key;
+    var body = el.querySelector(".video-popup-body");
+    if (embed.type === "video") {
+      var video = document.createElement("video");
+      video.src = embed.src; video.controls = true; video.playsInline = true; video.autoplay = true;
+      body.appendChild(video);
+    } else {
+      var iframe = document.createElement("iframe");
+      iframe.src = embed.src;
+      iframe.setAttribute("allow", "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen");
+      iframe.setAttribute("allowfullscreen", "");
+      body.appendChild(iframe);
+    }
+    document.body.appendChild(el);
+    videoPopupEl = el;
+    bindVideoPopupDrag(el);
+    el.querySelector("[data-video-close]").addEventListener("click", closeVideoPopup);
+    el.querySelector("[data-video-max]").addEventListener("click", function () { el.classList.toggle("maximized"); });
+    el.querySelector("[data-video-edit]").addEventListener("click", function () {
+      var next = prompt("Video-link voor \"" + key + "\" (YouTube/Vimeo of directe .mp4-link, leeg = verwijderen)", url);
+      if (next === null) return;
+      next = next.trim();
+      saveExerciseVideo(key, next);
+      scheduleRerender();
+      if (next) openVideoPopup(key, next, person); else closeVideoPopup();
+    });
+  }
+  function handleVideoButtonClick(key, existingUrl, person) {
+    if (existingUrl) { openVideoPopup(key, existingUrl, person); return; }
+    var url = prompt("Video-link voor \"" + key + "\" (YouTube/Vimeo of directe .mp4-link, max. ~2 min)", "");
+    if (!url) return;
+    url = url.trim();
+    if (!url) return;
+    saveExerciseVideo(key, url);
+    scheduleRerender();
+    openVideoPopup(key, url, person);
   }
 
   /* ------------------------------------------------------------------ *
@@ -1610,8 +1775,8 @@
 
   function strengthTableHTML(iso, phaseId, role) {
     var scheme = PHASE_SCHEME[phaseId];
-    var exList = EX_LISTS[role];
     var person = getProfile();
+    var exList = exListFor(role, person);
     var exData = (CACHE.ex[person] && CACHE.ex[person][iso]) || {};
     var html = "";
     exList.forEach(function (pair) {
@@ -1631,16 +1796,23 @@
         setsReps = altPlan.sets;
         rpe = altPlan.rpe;
         rest = altPlan.rest || rest;
-        prog = altPlan.label || prog;
       }
       html += "<div class=\"ex-row\">";
-      html += "<div class=\"ex-name\">" + nameHTML + "</div>";
+      if (altPlan) {
+        html += "<div class=\"ex-name\">" + esc(altPlan.label) + "</div>";
+        html += "<div class=\"ex-alt-note\">vervangt: " + esc(name) + "</div>";
+      } else {
+        html += "<div class=\"ex-name\">" + nameHTML + "</div>";
+      }
       html += "<div class=\"ex-presc\">" + esc(setsReps) + " · " + infoPop("RPE " + rpe, RPE_INFO_TEXT) + " · rust " + esc(rest) + "</div>";
       html += "<div class=\"ex-note\">" + esc(prog) + "</div>";
       if (!altPlan) {
         var hint = progressionHint(name, person, iso, setsReps);
         if (hint) html += "<div class=\"ex-hint\">" + esc(hint) + "</div>";
       }
+      var videoKey = altPlan ? altPlan.label : name;
+      var videoUrl = getExerciseVideo(videoKey, person);
+      html += "<button type=\"button\" class=\"video-btn" + (videoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(videoKey) + "\" data-video-url=\"" + esc(videoUrl) + "\">" + (videoUrl ? "▶ Video" : "🎬 Video toevoegen") + "</button>";
       html += "<div class=\"ex-inputs\">";
       html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + esc(saved.weight || "") + "\"></label>";
       html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + esc(saved.reps || "") + "\"></label>";
@@ -1654,10 +1826,18 @@
     customRows.forEach(function (name) {
       var saved = exData[name] || {};
       if (saved.custom !== true) return;
+      var customAlt = saved.alternative || "";
       html += "<div class=\"ex-row custom-row\">";
-      html += "<div class=\"ex-name\">" + esc(name) + "</div>";
+      if (customAlt) {
+        html += "<div class=\"ex-name\">" + esc(customAlt) + "</div>";
+        html += "<div class=\"ex-alt-note\">vervangt: " + esc(name) + "</div>";
+      } else {
+        html += "<div class=\"ex-name\">" + esc(name) + "</div>";
+      }
       html += "<div class=\"ex-presc\">Aangepaste oefening</div>";
-      html += "<div class=\"ex-note\">" + esc(saved.alternative || "") + "</div>";
+      var customVideoKey = customAlt || name;
+      var customVideoUrl = getExerciseVideo(customVideoKey, person);
+      html += "<button type=\"button\" class=\"video-btn" + (customVideoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(customVideoKey) + "\" data-video-url=\"" + esc(customVideoUrl) + "\">" + (customVideoUrl ? "▶ Video" : "🎬 Video toevoegen") + "</button>";
       html += "<div class=\"ex-inputs\">";
       html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + esc(saved.weight || "") + "\"></label>";
       html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + esc(saved.reps || "") + "\"></label>";
@@ -2197,6 +2377,37 @@
     html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">+ Alternatief toevoegen</button>";
     html += "</form></div>";
 
+    html += "<div class=\"card\"><h3 class=\"card-title\">Mijn oefeningen</h3>";
+    html += "<p class=\"small\">Kies zelf welke oefeningen in je krachttraining-sessies verschijnen, per type sessie. Voeg toe uit de database of typ je eigen oefening in; verwijder wat je niet wil doen. Geldt voor jou, op elke fase.</p>";
+    ["upper", "legs", "fullbody"].forEach(function (role) {
+      var list = exListFor(role, person);
+      var isCustomized = !!(prof.exerciseList && prof.exerciseList[role] && prof.exerciseList[role].length);
+      html += "<h4 class=\"ex-role-title\">" + esc(ROLE_LABELS[role]) + "</h4>";
+      list.forEach(function (pair) {
+        html += "<div class=\"progress-row\"><span>" + esc(pair[0]) + " <span class=\"muted\">(" + esc(CAT_LABELS[pair[1]] || pair[1]) + ")</span></span>" +
+          "<button type=\"button\" class=\"del\" data-exlist-remove=\"" + role + "\" data-exlist-name=\"" + esc(pair[0]) + "\" title=\"Verwijderen\">×</button></div>";
+      });
+      if (isCustomized) {
+        html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exlist-reset=\"" + role + "\">↺ Herstel standaardlijst</button>";
+      }
+      var dbOptions = (EXERCISE_DATABASE[role] || []).filter(function (pair) { return !list.some(function (p) { return p[0] === pair[0]; }); });
+      html += "<label class=\"field\">Toevoegen uit database<select data-exlist-db-select=\"" + role + "\">" +
+        "<option value=\"\">– kies –</option>" +
+        dbOptions.map(function (pair) { return "<option value=\"" + esc(pair[0]) + "\">" + esc(pair[0]) + " (" + esc(CAT_LABELS[pair[1]] || pair[1]) + ")</option>"; }).join("") +
+        "</select></label>";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-block btn-sm\" data-exlist-add-db=\"" + role + "\">+ Toevoegen uit database</button>";
+      html += "<form data-exlist-custom-form=\"" + role + "\">";
+      html += "<div class=\"input-grid\">";
+      html += "<label class=\"field\">Eigen oefening<input type=\"text\" name=\"name\" placeholder=\"bv. Zercher squat\"></label>";
+      html += "<label class=\"field\">Type<select name=\"cat\">" +
+        ["MAIN", "MAIN2", "ACC", "CORE", "CARRY", "COND"].map(function (c) { return "<option value=\"" + c + "\">" + esc(CAT_LABELS[c]) + "</option>"; }).join("") +
+        "</select></label>";
+      html += "</div>";
+      html += "<button type=\"submit\" class=\"btn btn-outline btn-block btn-sm\">+ Eigen oefening toevoegen</button>";
+      html += "</form><hr class=\"sep\">";
+    });
+    html += "</div>";
+
     html += "<div class=\"card\"><h3 class=\"card-title\">Pauzeperiode (blessure/vakantie)</h3>";
     html += "<p class=\"small\">Tijdens een pauzeperiode toont je schema \"Pauze\" i.p.v. een trainingssessie.</p>";
     var pauses = prof.pauses || [];
@@ -2548,6 +2759,12 @@
   }
 
   function handleViewClick(e) {
+    var videoBtn = e.target.closest && e.target.closest("[data-video-key]");
+    if (videoBtn) {
+      handleVideoButtonClick(videoBtn.getAttribute("data-video-key"), videoBtn.getAttribute("data-video-url"), getProfile());
+      return;
+    }
+
     var delPhotoBtn = e.target.closest && e.target.closest("[data-photo-delete]");
     if (delPhotoBtn) { deleteDailyPhoto(delPhotoBtn.getAttribute("data-photo-delete")); return; }
 
@@ -2787,6 +3004,44 @@
       btn.addEventListener("click", function () {
         ALTMGR_SELECTED = btn.getAttribute("data-altmgr-remove");
         removeCustomAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
+        render();
+      });
+    });
+
+    viewEl.querySelectorAll("[data-exlist-remove]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeExerciseFromList(btn.getAttribute("data-exlist-remove"), btn.getAttribute("data-exlist-name"), getProfile());
+        render();
+      });
+    });
+    viewEl.querySelectorAll("[data-exlist-reset]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (confirm("Standaardlijst herstellen voor dit type sessie? Je eigen aanpassingen aan deze lijst gaan verloren.")) {
+          resetExerciseList(btn.getAttribute("data-exlist-reset"));
+          render();
+        }
+      });
+    });
+    viewEl.querySelectorAll("[data-exlist-add-db]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var role = btn.getAttribute("data-exlist-add-db");
+        var sel = viewEl.querySelector("[data-exlist-db-select=\"" + role + "\"]");
+        if (!sel || !sel.value) return;
+        var pair = (EXERCISE_DATABASE[role] || []).find(function (p) { return p[0] === sel.value; });
+        if (!pair) return;
+        addExerciseToList(role, pair[0], pair[1], getProfile());
+        render();
+      });
+    });
+    viewEl.querySelectorAll("[data-exlist-custom-form]").forEach(function (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var role = form.getAttribute("data-exlist-custom-form");
+        var fd = new FormData(form);
+        var name = String(fd.get("name") || "").trim();
+        var cat = String(fd.get("cat") || "MAIN");
+        if (!name) return;
+        addExerciseToList(role, name, cat, getProfile());
         render();
       });
     });
