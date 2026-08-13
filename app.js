@@ -329,12 +329,16 @@
 
   var PERSON_LABELS = { sean: "Sean", vriendin: "Vriendin" };
   var PERSON_COLORS = { sean: "#D62828", vriendin: "#2563EB" };
+  // Niet als letterlijke "naam@domein.tld"-tekst geschreven — dit bestand staat in een
+  // publieke GitHub-repo en dit ontwijkt simpele e-mail-scraping/regex-bots. Geen echte
+  // beveiliging (iedereen die de code leest, kan dit herleiden), enkel ruis tegen scrapers.
+  function mkEmail(local, domain) { return local + "@" + domain; }
   var PERSON_EMAILS = {
-    sean: "[verwijderd-privé]",
-    vriendin: "[verwijderd-privé]"
+    sean: mkEmail("sean.vandoorne", "gmail.com"),
+    vriendin: mkEmail("femkedobbelaere", "hotmail.com")
   };
   var ADMIN_EMAILS = [
-    "[verwijderd-privé]"
+    mkEmail("sean.werk", "gmail.com")
   ];
 
   function isAdminUser() {
