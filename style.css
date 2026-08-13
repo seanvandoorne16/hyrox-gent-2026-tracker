@@ -519,9 +519,11 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 
 /* ---------- video-knop bij oefeningen ---------- */
 .video-btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin: -2px 0 8px;
-  padding: 4px 10px;
+  padding: 4px 10px 4px 4px;
   font-size: 11.5px;
   font-weight: 600;
   border-radius: 999px;
@@ -531,6 +533,7 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   cursor: pointer;
 }
 .video-btn.has-video { border-color: var(--red); color: var(--red); }
+.video-thumb { width: 32px; height: 18px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
 
 /* ---------- video-popup (draggable mini-player) ---------- */
 .video-popup {

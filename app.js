@@ -121,8 +121,8 @@
   var REPS_FIELD_LABEL = { CORE: "Tijd (sec)", CARRY: "Afstand (m)" };
 
   // Database om extra oefeningen uit te kiezen (naast de vaste standaardlijst) — zie
-  // "Ik" → "Mijn oefeningen". Bevat ook de bestaande standaardoefeningen, zodat die na
-  // een "Herstel standaardlijst" makkelijk terug individueel toe te voegen zijn.
+  // tabblad "Oefeningen" → "Mijn oefeningen". Bevat ook de bestaande standaardoefeningen,
+  // zodat die na een "Herstel standaardlijst" makkelijk terug individueel toe te voegen zijn.
   var EXERCISE_DATABASE = {
     upper: [
       ["Bench press", "MAIN"], ["Incline dumbbell press", "ACC"],
@@ -214,7 +214,7 @@
 
   // Voorgestelde alternatieven voor een oefening: vaste lijst (EXERCISE_ALTERNATIVES) minus wat de
   // gebruiker zelf verwijderde (PERSONAL[person].hiddenAlternatives), plus eigen toegevoegde machines
-  // (PERSONAL[person].customAlternatives) — zie "Ik"-tab, kaart "Machines & alternatieven".
+  // (PERSONAL[person].customAlternatives) — zie tabblad "Oefeningen", kaart "Machines & alternatieven".
   function getAlternativesFor(name, person) {
     var built = EXERCISE_ALTERNATIVES[name] || [];
     var hidden = (PERSONAL[person] && PERSONAL[person].hiddenAlternatives && PERSONAL[person].hiddenAlternatives[name]) || [];
@@ -788,6 +788,7 @@
   var EDITING_PROGRESS_ID = null;
   var OPEN_SETS_EDITORS = {}; // "iso|exName" -> true, onthoudt welke sets-editors open staan tussen rerenders
   var SELECTED_EX_CHART = null; // welke oefening getoond wordt in "Progressie per oefening"
+  var LAST_RENDERED_ROUTE_KEY = null; // voorkomt scroll-naar-boven bij een rerender op dezelfde pagina (bv. na een instelling wijzigen)
   var CACHE = { daily: {}, ex: {}, run: {}, circuit: {}, progress: [], together: {} };
   var listeners = [];
   var rerenderTimer = null;
@@ -1026,8 +1027,14 @@
   // Vult ontbrekende sets aan tot minstens `count` lege sets, en migreert oude vlakke
   // weight/reps-invoer (van vóór per-set-logging) naar set 1 zodat die data niet verloren gaat.
   function normalizeExSets(saved, count) {
-    var sets = (saved.sets || []).map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
-    if (!sets.length && (saved.weight || saved.reps)) sets.push({ weight: saved.weight || "", reps: saved.reps || "" });
+    // Enkel aanvullen tot `count` zolang er nog geen sets-array bestaat (eerste keer geopend
+    // die dag) — eenmaal de gebruiker zelf sets toevoegt/verwijdert, blijft die eigen lengte
+    // staan (anders zou "− Set" meteen weer aangevuld worden tot het voorgeschreven aantal).
+    if (saved.sets && saved.sets.length) {
+      return saved.sets.map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
+    }
+    var sets = [];
+    if (saved.weight || saved.reps) sets.push({ weight: saved.weight || "", reps: saved.reps || "" });
     while (sets.length < count) sets.push({ weight: "", reps: "" });
     return sets;
   }
@@ -1224,6 +1231,20 @@
     var person = getProfile();
     var pauses = ((PERSONAL[person] && PERSONAL[person].pauses) || []).filter(function (p) { return String(p.id) !== String(id); });
     savePersonalPatch({ pauses: pauses });
+  }
+
+  // Eigen sessie i.p.v. het voorgeschreven schema voor één specifieke dag (bv. een HYROX-
+  // groepsles bij de gym) — vervangt enkel de weergave van die dag, het schema zelf blijft staan.
+  function getSessionOverride(iso, person) {
+    return (PERSONAL[person] && PERSONAL[person].sessionOverrides && PERSONAL[person].sessionOverrides[iso]) || "";
+  }
+  function saveSessionOverride(iso, text) {
+    var patch = { sessionOverrides: {} };
+    patch.sessionOverrides[iso] = text;
+    savePersonalPatch(patch);
+  }
+  function clearSessionOverride(iso) {
+    saveSessionOverride(iso, "");
   }
 
   function hasDailyData(iso) {
@@ -1484,6 +1505,13 @@
     return !personal && !!EXERCISE_VIDEOS_DEFAULT[key];
   }
 
+  // Thumbnail-afbeelding uit een YouTube-videolink (stabiele, publieke YouTube-CDN-URL,
+  // afgeleid van de al geverifieerde video-id — geen apart opgezochte/gegokte afbeelding).
+  function youtubeThumbnail(url) {
+    var m = String(url || "").match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/i);
+    return m ? "https://img.youtube.com/vi/" + m[1] + "/hqdefault.jpg" : "";
+  }
+
   function toEmbedInfo(url) {
     url = String(url || "").trim();
     if (!url) return null;
@@ -1504,7 +1532,9 @@
     var handle = el.querySelector("[data-video-drag-handle]");
     var dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
     handle.addEventListener("pointerdown", function (e) {
-      if (el.classList.contains("maximized")) return;
+      // Niet slepen (en geen pointer capture nemen) als de tik op een knop in de header was —
+      // anders "won" het sleepgedrag altijd van de klik en werkten sluiten/vergroten/wijzigen nooit.
+      if (el.classList.contains("maximized") || (e.target.closest && e.target.closest("button"))) return;
       dragging = true;
       var rect = el.getBoundingClientRect();
       startX = e.clientX; startY = e.clientY;
@@ -1770,6 +1800,15 @@
     return "<div class=\"card pause-card\"><h3 class=\"card-title\">⏸️ Pauze — " + esc(pause.reason) + "</h3>" +
       "<p class=\"muted\">Van " + esc(formatNLShort(parseISO(pause.start))) + " tot " + esc(formatNLShort(parseISO(pause.end))) + ". Geniet van het herstel!</p></div>";
   }
+  function sessionOverrideCardHTML(iso, override) {
+    return "<div class=\"card\"><h3 class=\"card-title\">📝 Eigen sessie</h3>" +
+      "<p>" + esc(override) + "</p>" +
+      "<p class=\"muted\">Vervangt enkel de weergave van deze dag — het normale schema blijft gewoon staan voor andere dagen.</p>" +
+      "<div class=\"btn-row\">" +
+      "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-edit=\"" + iso + "\">Wijzigen</button>" +
+      "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-clear=\"" + iso + "\">Terug naar schema</button>" +
+      "</div></div>";
+  }
 
   function photoFieldHTML(iso, d) {
     if (!isTracked("photo")) return "";
@@ -1877,8 +1916,11 @@
     html += "<p class=\"muted\">Programmaweek " + wk + " van ±" + totalProgramWeeks() + "</p>";
     html += "</div>";
 
+    var sessionOverride = getSessionOverride(iso, getProfile());
     if (pause) {
       html += pauseCardHTML(pause);
+    } else if (sessionOverride) {
+      html += sessionOverrideCardHTML(iso, sessionOverride);
     } else {
       html += "<div class=\"card\">";
       html += "<h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(today)]) + " — sessie</h3>";
@@ -1953,8 +1995,9 @@
       var wp = ROLE_CONTENT[phase.id][role];
       var filled = hasDailyData(iso);
       var pauseHere = isPaused(date, person);
-      var togetherHint = (!pauseHere && (role === "run" || role === "hyrox")) ? " 👥" : "";
-      var sessionTitle = pauseHere ? "⏸️ Pauze (" + pauseHere.reason + ")" : wp.title + (iso === PROGRAM_END ? " — 🏁 WEDSTRIJDDAG" : "");
+      var overrideHere = getSessionOverride(iso, person);
+      var togetherHint = (!pauseHere && !overrideHere && (role === "run" || role === "hyrox")) ? " 👥" : "";
+      var sessionTitle = pauseHere ? "⏸️ Pauze (" + pauseHere.reason + ")" : overrideHere ? "📝 " + overrideHere : wp.title + (iso === PROGRAM_END ? " — 🏁 WEDSTRIJDDAG" : "");
 
       html += "<a class=\"day-card" + (isToday ? " today" : "") + "\" href=\"#/dag/" + iso + "\">";
       html += "<div class=\"dow\">" + esc(DOW_LABELS[dow]) + "<div class=\"date-sub\">" + esc(formatNLShort(date)) + "</div></div>";
@@ -2073,10 +2116,11 @@
       var videoKey = altPlan ? altPlan.label : name;
       var videoUrl = getExerciseVideo(videoKey, person);
       var videoBtnLabel = videoUrl ? ("▶ Video" + (isDefaultVideo(videoKey, person) ? " (standaard)" : "")) : "🎬 Video toevoegen";
-      html += "<button type=\"button\" class=\"video-btn" + (videoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(videoKey) + "\" data-video-url=\"" + esc(videoUrl) + "\">" + videoBtnLabel + "</button>";
+      var videoThumb = videoUrl ? youtubeThumbnail(videoUrl) : "";
+      html += "<button type=\"button\" class=\"video-btn" + (videoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(videoKey) + "\" data-video-url=\"" + esc(videoUrl) + "\">" + (videoThumb ? "<img class=\"video-thumb\" src=\"" + esc(videoThumb) + "\" alt=\"\">" : "") + videoBtnLabel + "</button>";
       var repsFieldLabel = REPS_FIELD_LABEL[cat] || "Reps behaald";
       var sets = normalizeExSets(saved, parseSetCount(setsReps));
-      html += setsEditorHTML(iso, name, sets, repsFieldLabel, false);
+      html += setsEditorHTML(iso, name, sets, repsFieldLabel, true);
       html += "<div class=\"ex-inputs\">";
       html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], status, "ex", iso, "status", name) + "</label>";
       html += "<label>Alternatief" + selectHTML([""].concat(altOptions.map(function (a) { return a.label; })), alt, "ex", iso, "alternative", name) + "</label>";
@@ -2102,7 +2146,8 @@
       var customVideoKey = customAlt || name;
       var customVideoUrl = getExerciseVideo(customVideoKey, person);
       var customVideoBtnLabel = customVideoUrl ? ("▶ Video" + (isDefaultVideo(customVideoKey, person) ? " (standaard)" : "")) : "🎬 Video toevoegen";
-      html += "<button type=\"button\" class=\"video-btn" + (customVideoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(customVideoKey) + "\" data-video-url=\"" + esc(customVideoUrl) + "\">" + customVideoBtnLabel + "</button>";
+      var customVideoThumb = customVideoUrl ? youtubeThumbnail(customVideoUrl) : "";
+      html += "<button type=\"button\" class=\"video-btn" + (customVideoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(customVideoKey) + "\" data-video-url=\"" + esc(customVideoUrl) + "\">" + (customVideoThumb ? "<img class=\"video-thumb\" src=\"" + esc(customVideoThumb) + "\" alt=\"\">" : "") + customVideoBtnLabel + "</button>";
       var customSets = normalizeExSets(saved, 1);
       html += setsEditorHTML(iso, name, customSets, "Reps behaald", true);
       html += "<div class=\"ex-inputs\">";
@@ -2257,12 +2302,16 @@
     html += "<h1 class=\"page-title\" style=\"margin-top:10px;\">" + esc(formatNLLong(date)) + "</h1>";
     html += "<div style=\"margin-bottom:12px;\">" + phaseBadge(phase) + (deload ? deloadBadgeHTML() : "") + (isRaceDay ? "<span class=\"badge red\">🏁 Wedstrijddag</span>" : "") + "</div>";
 
+    var sessionOverride = getSessionOverride(iso, getProfile());
     if (pause) {
       html += pauseCardHTML(pause);
+    } else if (sessionOverride) {
+      html += sessionOverrideCardHTML(iso, sessionOverride);
     } else {
       html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(date)]) + " — sessie</h3>";
       html += "<p>" + esc(wp.title) + "</p>";
       if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-edit=\"" + iso + "\">Iets anders gedaan? Vul een eigen sessie in</button>";
       html += "</div>";
 
       if (role === "upper" || role === "legs" || role === "fullbody") {
@@ -2610,6 +2659,69 @@
     return html;
   }
 
+  /* ------------------------------------------------------------------ *
+   * 11b. RENDER: OEFENINGEN (machines & alternatieven, eigen oefeningenlijst)
+   * ------------------------------------------------------------------ */
+
+  function renderOefeningen() {
+    var person = getProfile();
+    var prof = PERSONAL[person] || {};
+    var html = "<h1 class=\"page-title\">Oefeningen</h1>";
+    html += "<p class=\"small\">Pas machines en oefeningen aan wat er in jouw gym staat. Geldt per profiel, op elke fase.</p>";
+
+    html += "<div class=\"card\"><h3 class=\"card-title\">Machines &amp; alternatieven</h3>";
+    html += "<p class=\"small\">Niet elke gym heeft dezelfde toestellen. Kies hieronder een oefening en beheer welke alternatieve machine/oefening de app je voorstelt wanneer je \"machine niet aanwezig\" aanvinkt bij een sessie — verwijder wat je niet hebt, voeg toe wat je wél hebt.</p>";
+    var allExNames = getAllExerciseNames();
+    var altmgrSelected = ALTMGR_SELECTED && allExNames.indexOf(ALTMGR_SELECTED) !== -1 ? ALTMGR_SELECTED : allExNames[0];
+    html += "<label class=\"field\">Oefening<select id=\"altmgr-exercise-select\">" +
+      allExNames.map(function (n) { return "<option value=\"" + esc(n) + "\"" + (n === altmgrSelected ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") +
+      "</select></label>";
+    html += "<div id=\"altmgr-list\">" + altManagerListHTML(altmgrSelected, person) + "</div>";
+    html += "<hr class=\"sep\">";
+    html += "<form id=\"altmgr-add-form\">";
+    html += "<label class=\"field\">Naam machine/oefening<input type=\"text\" name=\"label\" required placeholder=\"bv. Hack Squat Machine\"></label>";
+    html += "<div class=\"input-grid\">";
+    html += "<label class=\"field\">Sets x reps<input type=\"text\" name=\"sets\" placeholder=\"bv. 4x10\"></label>";
+    html += "<label class=\"field\">RPE<input type=\"text\" name=\"rpe\" placeholder=\"bv. 7\"></label>";
+    html += "</div>";
+    html += "<label class=\"field\">Rust<input type=\"text\" name=\"rest\" placeholder=\"bv. 75 sec\"></label>";
+    html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">+ Alternatief toevoegen</button>";
+    html += "</form></div>";
+
+    html += "<div class=\"card\"><h3 class=\"card-title\">Mijn oefeningen</h3>";
+    html += "<p class=\"small\">Kies zelf welke oefeningen in je krachttraining-sessies verschijnen, per type sessie. Voeg toe uit de database of typ je eigen oefening in; verwijder wat je niet wil doen.</p>";
+    ["upper", "legs", "fullbody"].forEach(function (role) {
+      var list = exListFor(role, person);
+      var isCustomized = !!(prof.exerciseList && prof.exerciseList[role] && prof.exerciseList[role].length);
+      html += "<h4 class=\"ex-role-title\">" + esc(ROLE_LABELS[role]) + "</h4>";
+      list.forEach(function (pair) {
+        html += "<div class=\"progress-row\"><span>" + esc(pair[0]) + " <span class=\"muted\">(" + esc(CAT_LABELS[pair[1]] || pair[1]) + ")</span></span>" +
+          "<button type=\"button\" class=\"del\" data-exlist-remove=\"" + role + "\" data-exlist-name=\"" + esc(pair[0]) + "\" title=\"Verwijderen\">×</button></div>";
+      });
+      if (isCustomized) {
+        html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exlist-reset=\"" + role + "\">↺ Herstel standaardlijst</button>";
+      }
+      var dbOptions = (EXERCISE_DATABASE[role] || []).filter(function (pair) { return !list.some(function (p) { return p[0] === pair[0]; }); });
+      html += "<label class=\"field\">Toevoegen uit database<select data-exlist-db-select=\"" + role + "\">" +
+        "<option value=\"\">– kies –</option>" +
+        dbOptions.map(function (pair) { return "<option value=\"" + esc(pair[0]) + "\">" + esc(pair[0]) + " (" + esc(CAT_LABELS[pair[1]] || pair[1]) + ")</option>"; }).join("") +
+        "</select></label>";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-block btn-sm\" data-exlist-add-db=\"" + role + "\">+ Toevoegen uit database</button>";
+      html += "<form data-exlist-custom-form=\"" + role + "\">";
+      html += "<div class=\"input-grid\">";
+      html += "<label class=\"field\">Eigen oefening<input type=\"text\" name=\"name\" placeholder=\"bv. Zercher squat\"></label>";
+      html += "<label class=\"field\">Type<select name=\"cat\">" +
+        ["MAIN", "MAIN2", "ACC", "CORE", "CARRY", "COND"].map(function (c) { return "<option value=\"" + c + "\">" + esc(CAT_LABELS[c]) + "</option>"; }).join("") +
+        "</select></label>";
+      html += "</div>";
+      html += "<button type=\"submit\" class=\"btn btn-outline btn-block btn-sm\">+ Eigen oefening toevoegen</button>";
+      html += "</form><hr class=\"sep\">";
+    });
+    html += "</div>";
+
+    return html;
+  }
+
   function renderIk() {
     var person = getProfile();
     var prof = PERSONAL[person] || {};
@@ -2685,56 +2797,6 @@
     });
     html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Weekindeling opslaan</button>";
     html += "</form></div>";
-
-    html += "<div class=\"card\"><h3 class=\"card-title\">Machines &amp; alternatieven</h3>";
-    html += "<p class=\"small\">Niet elke gym heeft dezelfde toestellen. Kies hieronder een oefening en beheer welke alternatieve machine/oefening de app je voorstelt wanneer je \"machine niet aanwezig\" aanvinkt bij een sessie — verwijder wat je niet hebt, voeg toe wat je wél hebt.</p>";
-    var allExNames = getAllExerciseNames();
-    var altmgrSelected = ALTMGR_SELECTED && allExNames.indexOf(ALTMGR_SELECTED) !== -1 ? ALTMGR_SELECTED : allExNames[0];
-    html += "<label class=\"field\">Oefening<select id=\"altmgr-exercise-select\">" +
-      allExNames.map(function (n) { return "<option value=\"" + esc(n) + "\"" + (n === altmgrSelected ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") +
-      "</select></label>";
-    html += "<div id=\"altmgr-list\">" + altManagerListHTML(altmgrSelected, person) + "</div>";
-    html += "<hr class=\"sep\">";
-    html += "<form id=\"altmgr-add-form\">";
-    html += "<label class=\"field\">Naam machine/oefening<input type=\"text\" name=\"label\" required placeholder=\"bv. Hack Squat Machine\"></label>";
-    html += "<div class=\"input-grid\">";
-    html += "<label class=\"field\">Sets x reps<input type=\"text\" name=\"sets\" placeholder=\"bv. 4x10\"></label>";
-    html += "<label class=\"field\">RPE<input type=\"text\" name=\"rpe\" placeholder=\"bv. 7\"></label>";
-    html += "</div>";
-    html += "<label class=\"field\">Rust<input type=\"text\" name=\"rest\" placeholder=\"bv. 75 sec\"></label>";
-    html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">+ Alternatief toevoegen</button>";
-    html += "</form></div>";
-
-    html += "<div class=\"card\"><h3 class=\"card-title\">Mijn oefeningen</h3>";
-    html += "<p class=\"small\">Kies zelf welke oefeningen in je krachttraining-sessies verschijnen, per type sessie. Voeg toe uit de database of typ je eigen oefening in; verwijder wat je niet wil doen. Geldt voor jou, op elke fase.</p>";
-    ["upper", "legs", "fullbody"].forEach(function (role) {
-      var list = exListFor(role, person);
-      var isCustomized = !!(prof.exerciseList && prof.exerciseList[role] && prof.exerciseList[role].length);
-      html += "<h4 class=\"ex-role-title\">" + esc(ROLE_LABELS[role]) + "</h4>";
-      list.forEach(function (pair) {
-        html += "<div class=\"progress-row\"><span>" + esc(pair[0]) + " <span class=\"muted\">(" + esc(CAT_LABELS[pair[1]] || pair[1]) + ")</span></span>" +
-          "<button type=\"button\" class=\"del\" data-exlist-remove=\"" + role + "\" data-exlist-name=\"" + esc(pair[0]) + "\" title=\"Verwijderen\">×</button></div>";
-      });
-      if (isCustomized) {
-        html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exlist-reset=\"" + role + "\">↺ Herstel standaardlijst</button>";
-      }
-      var dbOptions = (EXERCISE_DATABASE[role] || []).filter(function (pair) { return !list.some(function (p) { return p[0] === pair[0]; }); });
-      html += "<label class=\"field\">Toevoegen uit database<select data-exlist-db-select=\"" + role + "\">" +
-        "<option value=\"\">– kies –</option>" +
-        dbOptions.map(function (pair) { return "<option value=\"" + esc(pair[0]) + "\">" + esc(pair[0]) + " (" + esc(CAT_LABELS[pair[1]] || pair[1]) + ")</option>"; }).join("") +
-        "</select></label>";
-      html += "<button type=\"button\" class=\"btn btn-outline btn-block btn-sm\" data-exlist-add-db=\"" + role + "\">+ Toevoegen uit database</button>";
-      html += "<form data-exlist-custom-form=\"" + role + "\">";
-      html += "<div class=\"input-grid\">";
-      html += "<label class=\"field\">Eigen oefening<input type=\"text\" name=\"name\" placeholder=\"bv. Zercher squat\"></label>";
-      html += "<label class=\"field\">Type<select name=\"cat\">" +
-        ["MAIN", "MAIN2", "ACC", "CORE", "CARRY", "COND"].map(function (c) { return "<option value=\"" + c + "\">" + esc(CAT_LABELS[c]) + "</option>"; }).join("") +
-        "</select></label>";
-      html += "</div>";
-      html += "<button type=\"submit\" class=\"btn btn-outline btn-block btn-sm\">+ Eigen oefening toevoegen</button>";
-      html += "</form><hr class=\"sep\">";
-    });
-    html += "</div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">Pauzeperiode (blessure/vakantie)</h3>";
     html += "<p class=\"small\">Tijdens een pauzeperiode toont je schema \"Pauze\" i.p.v. een trainingssessie.</p>";
@@ -3046,6 +3108,8 @@
       html = renderDay(r.param);
     } else if (r.route === "voortgang") {
       html = renderVoortgang();
+    } else if (r.route === "oefeningen") {
+      html = renderOefeningen();
     } else if (r.route === "ik") {
       html = renderIk();
     } else if (r.route === "info") {
@@ -3057,7 +3121,9 @@
     viewEl.innerHTML = html;
     subEl.textContent = subtitle;
     setActiveTab(r.route === "" ? "dashboard" : r.route);
-    window.scrollTo(0, 0);
+    var routeKey = r.route + "/" + (r.param || "");
+    if (routeKey !== LAST_RENDERED_ROUTE_KEY) window.scrollTo(0, 0);
+    LAST_RENDERED_ROUTE_KEY = routeKey;
 
     if (r.route === "week") {
       var jumpInput = document.getElementById("week-date-jump");
@@ -3095,6 +3161,9 @@
         });
       }
       bindProgressView();
+    }
+    if (r.route === "oefeningen") {
+      bindOefeningenActions();
     }
     if (r.route === "ik") {
       bindIkActions();
@@ -3155,6 +3224,25 @@
     var removeSetBtn = e.target.closest && e.target.closest("[data-exset-remove]");
     if (removeSetBtn) {
       removeExSetRow(removeSetBtn.getAttribute("data-date"), removeSetBtn.getAttribute("data-exset-remove"));
+      return;
+    }
+
+    var overrideEditBtn = e.target.closest && e.target.closest("[data-session-override-edit]");
+    if (overrideEditBtn) {
+      var overrideIso = overrideEditBtn.getAttribute("data-session-override-edit");
+      var currentOverride = getSessionOverride(overrideIso, getProfile());
+      var text = prompt("Wat deed je (of ga je doen) in plaats van het geplande schema?\nBv. \"HYROX groepsles bij de gym\"", currentOverride);
+      if (text === null) return;
+      text = text.trim();
+      if (!text) return;
+      saveSessionOverride(overrideIso, text);
+      render();
+      return;
+    }
+    var overrideClearBtn = e.target.closest && e.target.closest("[data-session-override-clear]");
+    if (overrideClearBtn) {
+      clearSessionOverride(overrideClearBtn.getAttribute("data-session-override-clear"));
+      render();
       return;
     }
 
@@ -3264,6 +3352,95 @@
     }
   }
 
+  function bindOefeningenActions() {
+    var altmgrSelect = document.getElementById("altmgr-exercise-select");
+    if (altmgrSelect) {
+      altmgrSelect.addEventListener("change", function () {
+        ALTMGR_SELECTED = altmgrSelect.value;
+        var list = document.getElementById("altmgr-list");
+        if (list) list.innerHTML = altManagerListHTML(ALTMGR_SELECTED, getProfile());
+      });
+    }
+    var altmgrForm = document.getElementById("altmgr-add-form");
+    if (altmgrForm) {
+      altmgrForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var exName = altmgrSelect ? altmgrSelect.value : (getAllExerciseNames()[0] || "");
+        if (!exName) return;
+        var fd = new FormData(altmgrForm);
+        var label = String(fd.get("label") || "").trim();
+        if (!label) return;
+        ALTMGR_SELECTED = exName;
+        saveCustomAlternative(exName, {
+          label: label,
+          sets: String(fd.get("sets") || "").trim(),
+          rpe: String(fd.get("rpe") || "").trim(),
+          rest: String(fd.get("rest") || "").trim()
+        });
+        render();
+      });
+    }
+    viewEl.querySelectorAll("[data-altmgr-hide]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        ALTMGR_SELECTED = btn.getAttribute("data-altmgr-hide");
+        hideBuiltinAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
+        render();
+      });
+    });
+    viewEl.querySelectorAll("[data-altmgr-restore]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        ALTMGR_SELECTED = btn.getAttribute("data-altmgr-restore");
+        restoreBuiltinAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
+        render();
+      });
+    });
+    viewEl.querySelectorAll("[data-altmgr-remove]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        ALTMGR_SELECTED = btn.getAttribute("data-altmgr-remove");
+        removeCustomAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
+        render();
+      });
+    });
+
+    viewEl.querySelectorAll("[data-exlist-remove]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeExerciseFromList(btn.getAttribute("data-exlist-remove"), btn.getAttribute("data-exlist-name"), getProfile());
+        render();
+      });
+    });
+    viewEl.querySelectorAll("[data-exlist-reset]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (confirm("Standaardlijst herstellen voor dit type sessie? Je eigen aanpassingen aan deze lijst gaan verloren.")) {
+          resetExerciseList(btn.getAttribute("data-exlist-reset"));
+          render();
+        }
+      });
+    });
+    viewEl.querySelectorAll("[data-exlist-add-db]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var role = btn.getAttribute("data-exlist-add-db");
+        var sel = viewEl.querySelector("[data-exlist-db-select=\"" + role + "\"]");
+        if (!sel || !sel.value) return;
+        var pair = (EXERCISE_DATABASE[role] || []).find(function (p) { return p[0] === sel.value; });
+        if (!pair) return;
+        addExerciseToList(role, pair[0], pair[1], getProfile());
+        render();
+      });
+    });
+    viewEl.querySelectorAll("[data-exlist-custom-form]").forEach(function (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var role = form.getAttribute("data-exlist-custom-form");
+        var fd = new FormData(form);
+        var name = String(fd.get("name") || "").trim();
+        var cat = String(fd.get("cat") || "MAIN");
+        if (!name) return;
+        addExerciseToList(role, name, cat, getProfile());
+        render();
+      });
+    });
+  }
+
   function bindIkActions() {
     var switchBtn = document.getElementById("switch-profile");
     if (switchBtn) switchBtn.addEventListener("click", function () { switchProfile(); });
@@ -3349,93 +3526,6 @@
         WEEKMAP_SUGGESTION = null;
         if (map) saveWeekmap(map);
         else render();
-      });
-    });
-
-    var altmgrSelect = document.getElementById("altmgr-exercise-select");
-    if (altmgrSelect) {
-      altmgrSelect.addEventListener("change", function () {
-        ALTMGR_SELECTED = altmgrSelect.value;
-        var list = document.getElementById("altmgr-list");
-        if (list) list.innerHTML = altManagerListHTML(ALTMGR_SELECTED, getProfile());
-      });
-    }
-    var altmgrForm = document.getElementById("altmgr-add-form");
-    if (altmgrForm) {
-      altmgrForm.addEventListener("submit", function (e) {
-        e.preventDefault();
-        var exName = altmgrSelect ? altmgrSelect.value : (getAllExerciseNames()[0] || "");
-        if (!exName) return;
-        var fd = new FormData(altmgrForm);
-        var label = String(fd.get("label") || "").trim();
-        if (!label) return;
-        ALTMGR_SELECTED = exName;
-        saveCustomAlternative(exName, {
-          label: label,
-          sets: String(fd.get("sets") || "").trim(),
-          rpe: String(fd.get("rpe") || "").trim(),
-          rest: String(fd.get("rest") || "").trim()
-        });
-        render();
-      });
-    }
-    viewEl.querySelectorAll("[data-altmgr-hide]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        ALTMGR_SELECTED = btn.getAttribute("data-altmgr-hide");
-        hideBuiltinAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
-        render();
-      });
-    });
-    viewEl.querySelectorAll("[data-altmgr-restore]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        ALTMGR_SELECTED = btn.getAttribute("data-altmgr-restore");
-        restoreBuiltinAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
-        render();
-      });
-    });
-    viewEl.querySelectorAll("[data-altmgr-remove]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        ALTMGR_SELECTED = btn.getAttribute("data-altmgr-remove");
-        removeCustomAlternative(ALTMGR_SELECTED, btn.getAttribute("data-altmgr-label"));
-        render();
-      });
-    });
-
-    viewEl.querySelectorAll("[data-exlist-remove]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        removeExerciseFromList(btn.getAttribute("data-exlist-remove"), btn.getAttribute("data-exlist-name"), getProfile());
-        render();
-      });
-    });
-    viewEl.querySelectorAll("[data-exlist-reset]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        if (confirm("Standaardlijst herstellen voor dit type sessie? Je eigen aanpassingen aan deze lijst gaan verloren.")) {
-          resetExerciseList(btn.getAttribute("data-exlist-reset"));
-          render();
-        }
-      });
-    });
-    viewEl.querySelectorAll("[data-exlist-add-db]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var role = btn.getAttribute("data-exlist-add-db");
-        var sel = viewEl.querySelector("[data-exlist-db-select=\"" + role + "\"]");
-        if (!sel || !sel.value) return;
-        var pair = (EXERCISE_DATABASE[role] || []).find(function (p) { return p[0] === sel.value; });
-        if (!pair) return;
-        addExerciseToList(role, pair[0], pair[1], getProfile());
-        render();
-      });
-    });
-    viewEl.querySelectorAll("[data-exlist-custom-form]").forEach(function (form) {
-      form.addEventListener("submit", function (e) {
-        e.preventDefault();
-        var role = form.getAttribute("data-exlist-custom-form");
-        var fd = new FormData(form);
-        var name = String(fd.get("name") || "").trim();
-        var cat = String(fd.get("cat") || "MAIN");
-        if (!name) return;
-        addExerciseToList(role, name, cat, getProfile());
-        render();
       });
     });
 
