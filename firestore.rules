@@ -1,0 +1,42 @@
+// HYROX Gent 2026 Tracker — Firestore Security Rules
+//
+// Dit bestand staat NIET automatisch live — het is enkel de brontekst, zodat de
+// regels ook in de repo (versiebeheer) staan i.p.v. enkel in de Firebase Console.
+// Om ze effectief te activeren: Firebase Console → Firestore Database → Rules
+// → plak de inhoud hieronder → Publiceren. (Of via de Firebase CLI: `firebase
+// deploy --only firestore:rules`, als dit project ooit met de CLI gekoppeld wordt.)
+//
+// Alleen de drie gekende accounts (Sean, zijn vriendin, admin) mogen lezen/schrijven.
+// Iedereen die met een ANDER e-mailadres een Firebase Auth-account aanmaakt via
+// "Account aanmaken" in de app (client-side geblokkeerd, maar dat is geen echte
+// beveiliging) komt hier alsnog niets mee — deze rules zijn de echte grens.
+// Pas de lijst hieronder aan als de e-mailadressen ooit wijzigen (zie ook
+// PERSON_EMAILS / ADMIN_EMAILS bovenaan app.js, die moeten in sync blijven).
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isKnownUser() {
+      return request.auth != null && request.auth.token.email in [
+        '[verwijderd-privé]',
+        '[verwijderd-privé]',
+        '[verwijderd-privé]'
+      ];
+    }
+
+    match /daily/{docId}     { allow read, write: if isKnownUser(); }
+    match /exercises/{docId} { allow read, write: if isKnownUser(); }
+    match /runs/{docId}      { allow read, write: if isKnownUser(); }
+    match /circuits/{docId}  { allow read, write: if isKnownUser(); }
+    match /progress/{docId}  { allow read, write: if isKnownUser(); }
+    match /together/{docId}  { allow read, write: if isKnownUser(); }
+    match /settings/{docId}  { allow read, write: if isKnownUser(); }
+    match /meta/{docId}      { allow read, write: if isKnownUser(); }
+
+    // Alles buiten deze whitelist: standaard dicht.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

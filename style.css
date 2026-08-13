@@ -206,6 +206,13 @@ label.field input, label.field select, label.field textarea {
   width: 22px; height: 22px; flex-shrink: 0;
   accent-color: var(--red);
 }
+.checklist-item .item-label { flex: 1; }
+.checklist-item input.circuit-time {
+  width: 72px; flex-shrink: 0;
+  padding: 5px 6px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card); color: var(--text);
+}
 
 /* ---------- day / week cards ---------- */
 .day-card {
@@ -244,6 +251,8 @@ label.field input, label.field select, label.field textarea {
   margin-bottom: 12px;
 }
 .week-nav .label { font-size: 13px; font-weight: 600; text-align: center; flex: 1; }
+.week-jump { margin: -4px 0 14px; }
+.week-jump .field { margin-bottom: 0; }
 
 /* ---------- tables ---------- */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 8px; }
@@ -262,6 +271,7 @@ tr:nth-child(even) td { background: rgba(127,127,127,0.06); }
 .ex-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
 .ex-presc { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .ex-note { font-size: 11.5px; color: var(--muted); font-style: italic; margin-bottom: 8px; }
+.ex-hint { font-size: 11.5px; color: var(--green); font-weight: 600; margin: -4px 0 8px; }
 .ex-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ex-inputs input {
   width: 100%; padding: 8px; font-size: 14px;
@@ -442,3 +452,30 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   z-index: 20;
   margin-top: 4px;
 }
+
+/* ---------- toasts (sync-status meldingen) ---------- */
+.toast-container {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  background: var(--navy);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.error { background: var(--red); }
+.toast.success { background: var(--green); }
