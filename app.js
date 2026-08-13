@@ -116,6 +116,9 @@
   var EX_LISTS = { upper: UPPER_EX, legs: LEGS_EX, fullbody: FULLBODY_EX };
 
   var CAT_LABELS = { MAIN: "Hoofdoefening", MAIN2: "Hoofdoefening 2", ACC: "Accessoire", CORE: "Core", CARRY: "Carry/dragen", COND: "Conditionering" };
+  // CORE-oefeningen worden getimed (seconden), CARRY-oefeningen op afstand (meter) — niet in reps,
+  // ook al deelden ze voorheen hetzelfde "Reps behaald"-invoerveld.
+  var REPS_FIELD_LABEL = { CORE: "Tijd (sec)", CARRY: "Afstand (m)" };
 
   // Database om extra oefeningen uit te kiezen (naast de vaste standaardlijst) — zie
   // "Ik" → "Mijn oefeningen". Bevat ook de bestaande standaardoefeningen, zodat die na
@@ -144,7 +147,8 @@
       ["Push press", "ACC"], ["Pull-ups/lat pulldown", "ACC"],
       ["Dumbbell row", "ACC"], ["Farmers carry", "CARRY"], ["Wall balls", "COND"],
       ["Kettlebell swing", "COND"], ["Clean and press", "MAIN2"], ["Sled push", "CARRY"],
-      ["Burpees", "COND"], ["Thrusters", "COND"], ["Box jump", "COND"], ["Battle ropes", "COND"]
+      ["Burpees", "COND"], ["Thrusters", "COND"], ["Box jump", "COND"], ["Battle ropes", "COND"],
+      ["Dead hang / grip hold", "CORE"]
     ]
   };
 
@@ -175,7 +179,7 @@
       { label: "Cable Press", sets: "4x10", rpe: "8", rest: "75 sec" }
     ],
     "Lat pulldown of pull-up": [
-      { label: "Seated Cable Row", sets: "4x10", rpe: "7", rest: "75 sec" },
+      { label: "Seated cable row", sets: "4x10", rpe: "7", rest: "75 sec" },
       { label: "Assisted Pull-up", sets: "4x8", rpe: "8", rest: "90 sec" }
     ],
     "Seated cable row": [
@@ -183,15 +187,15 @@
       { label: "Single-Arm Cable Row", sets: "4x12", rpe: "7", rest: "60 sec" }
     ],
     "Back squat of leg press": [
-      { label: "Goblet Squat", sets: "4x12", rpe: "7", rest: "75 sec" },
+      { label: "Goblet squat", sets: "4x12", rpe: "7", rest: "75 sec" },
       { label: "Hack Squat", sets: "4x8", rpe: "8", rest: "90 sec" }
     ],
     "Romanian deadlift": [
-      { label: "Hip Thrust", sets: "4x10", rpe: "7", rest: "90 sec" },
+      { label: "Hip thrust", sets: "4x10", rpe: "7", rest: "90 sec" },
       { label: "Single-leg Romanian Deadlift", sets: "4x12", rpe: "8", rest: "60 sec" }
     ],
     "Bulgarian split squat": [
-      { label: "Walking Lunges", sets: "4x16", rpe: "8", rest: "60 sec" },
+      { label: "Walking lunges", sets: "4x16", rpe: "8", rest: "60 sec" },
       { label: "Reverse Lunge", sets: "4x10", rpe: "7", rest: "75 sec" }
     ],
     "Walking lunges": [
@@ -203,7 +207,7 @@
       { label: "RDL variant", sets: "4x8", rpe: "7", rest: "90 sec" }
     ],
     "Front squat of goblet squat": [
-      { label: "Goblet Squat", sets: "4x12", rpe: "7", rest: "60 sec" },
+      { label: "Goblet squat", sets: "4x12", rpe: "7", rest: "60 sec" },
       { label: "Leg Press", sets: "4x10", rpe: "7", rest: "75 sec" }
     ]
   };
@@ -218,6 +222,75 @@
     var custom = (PERSONAL[person] && PERSONAL[person].customAlternatives && PERSONAL[person].customAlternatives[name]) || [];
     return visible.concat(custom);
   }
+
+  // Standaard oefeningsvideo's (korte, publieke YouTube-uitleg) — vooraf ingevuld zodat je niet
+  // zelf elke link moet opzoeken. Via het potlood-icoontje in de video-popup kan je een link
+  // altijd vervangen of uitzetten voor jezelf (jouw keuze overschrijft dit, per profiel).
+  // Elke link is via de YouTube oEmbed-API geverifieerd te bestaan (titel/kanaal gecontroleerd)
+  // tijdens het samenstellen — geen enkele is uit het geheugen gegokt. Check ze gerust zelf even.
+  var EXERCISE_VIDEOS_DEFAULT = {
+    "Arnold press": "https://www.youtube.com/watch?v=IuRL0F-SyjI",
+    "Assisted Pull-up": "https://www.youtube.com/shorts/4N7BS_v_UdU",
+    "Back squat of leg press": "https://www.youtube.com/shorts/EzvnMZuxGWw",
+    "Battle ropes": "https://www.youtube.com/watch?v=nzlmTiKqno0",
+    "Bench press": "https://www.youtube.com/shorts/hWbUlkb5Ms4",
+    "Biceps curl": "https://www.youtube.com/shorts/ICAXJVmOJik",
+    "Box jump": "https://www.youtube.com/watch?v=3INzGHuk23U",
+    "Bulgarian split squat": "https://www.youtube.com/watch?v=hPlKPjohFS0",
+    "Burpees": "https://www.youtube.com/shorts/zlYA1SENYG4",
+    "Cable Press": "https://www.youtube.com/shorts/wxV_H3DCC8c",
+    "Cable fly": "https://www.youtube.com/shorts/I-Ue34qLxc4",
+    "Calf raises": "https://www.youtube.com/watch?v=3UWi44yN-wM",
+    "Chest Supported Row": "https://www.youtube.com/shorts/uhwcRYpkjvc",
+    "Chest press machine": "https://www.youtube.com/shorts/Qu7-ceCvq7w",
+    "Chin-up": "https://www.youtube.com/shorts/iIgkQP4YZSA",
+    "Clean and press": "https://www.youtube.com/shorts/rmUUssjxv_4",
+    "Core (weighted plank / hanging knee raise)": "https://www.youtube.com/watch?v=jP-TzuXDZtc",
+    "Deadlift of trap bar deadlift": "https://www.youtube.com/shorts/7YYaGXvEr90",
+    "Dead hang / grip hold": "https://www.youtube.com/watch?v=jfHDdwvxiKM",
+    "Dumbbel Bench": "https://www.youtube.com/shorts/WbCEvFA0NJs",
+    "Dumbbell row": "https://www.youtube.com/shorts/3Xay6XfKjwE",
+    "Face pull": "https://www.youtube.com/shorts/sHSY0Ao8QHs",
+    "Farmers carry": "https://www.youtube.com/shorts/8RXTKE06mKc",
+    "Front squat of goblet squat": "https://www.youtube.com/watch?v=VfBOBhwXbro",
+    "Glute bridge": "https://www.youtube.com/watch?v=cJWrTdRYNnw",
+    "Goblet squat": "https://www.youtube.com/watch?v=gCESNsDsbqk",
+    "Hack Squat": "https://www.youtube.com/watch?v=hrciyIRwFzs",
+    "Hammer curl": "https://www.youtube.com/shorts/NyW2fT2gQhM",
+    "Hanging knee raise": "https://www.youtube.com/watch?v=Pr1ieGZ5atk",
+    "Hip thrust": "https://www.youtube.com/watch?v=S_uZP4UH6J0",
+    "Incline dumbbell press": "https://www.youtube.com/shorts/8fXfwG4ftaQ",
+    "Kettlebell swing": "https://www.youtube.com/watch?v=bDCeXbMJVNs",
+    "Lat pulldown of pull-up": "https://www.youtube.com/shorts/bNmvKpJSWKM",
+    "Lateral raises": "https://www.youtube.com/shorts/Kl3LEzQ5Zqs",
+    "Leg Press": "https://www.youtube.com/shorts/nDh_BlnLCGc",
+    "Leg curl": "https://www.youtube.com/watch?v=hqI59xXChFk",
+    "Leg extension": "https://www.youtube.com/watch?v=YyvSfVjQeL0",
+    "Machine Chest Press": "https://www.youtube.com/shorts/VHIlmOPMWWs",
+    "Overhead triceps extension": "https://www.youtube.com/shorts/Zr4gJ1zUN7o",
+    "Plank": "https://www.youtube.com/shorts/oPgZR4jlZi4",
+    "Pull-ups/lat pulldown": "https://www.youtube.com/shorts/l6-aIZTbAR0",
+    "Push press": "https://www.youtube.com/shorts/URlXYeZAz5E",
+    "Push-up variatie": "https://www.youtube.com/shorts/wD1M-f69Yy8",
+    "RDL variant": "https://www.youtube.com/watch?v=jEy_czb3RKA",
+    "Reverse Lunge": "https://www.youtube.com/watch?v=xrPteyQLGAo",
+    "Romanian deadlift": "https://www.youtube.com/shorts/dFR11xt1GbQ",
+    "Seated cable row": "https://www.youtube.com/shorts/8QuMq1GMMng",
+    "Seated calf raise": "https://www.youtube.com/watch?v=BxfKOyI8sUg",
+    "Shoulder press": "https://www.youtube.com/shorts/k6tzKisR3NY",
+    "Side plank": "https://www.youtube.com/shorts/BtM0a9x1F5o",
+    "Single-Arm Cable Row": "https://www.youtube.com/shorts/EXGINXoL8Co",
+    "Single-leg Romanian Deadlift": "https://www.youtube.com/watch?v=Zfr6wizR8rs",
+    "Sled push": "https://www.youtube.com/watch?v=ifFO-w0fsEI",
+    "Smith Machine Bench": "https://www.youtube.com/shorts/lYoSmkd-vOQ",
+    "Split Squat": "https://www.youtube.com/watch?v=4bNQITw0VdY",
+    "Step-up": "https://www.youtube.com/watch?v=5qjqDHOUh-A",
+    "Thrusters": "https://www.youtube.com/shorts/08OtPb9KcV4",
+    "Trap Bar Deadlift": "https://www.youtube.com/shorts/y5yEmMKdW6I",
+    "Triceps pushdown": "https://www.youtube.com/shorts/7OF77JMEXhM",
+    "Walking lunges": "https://www.youtube.com/watch?v=Pbmj6xPo-Hw",
+    "Wall balls": "https://www.youtube.com/shorts/lZuwFtvC-Is"
+  };
 
   var EXERCISE_INFO = {
     "Bench press": "Voeten plat op de grond, schouderbladen samengetrokken, stang raakt de borst ter hoogte van de tepels, duw explosief omhoog.",
@@ -242,19 +315,49 @@
     "Pull-ups/lat pulldown": "Trek met de rug/ellebogen, volledige uithanging boven, kin over de stang.",
     "Dumbbell row": "Rechte rug, trek de elleboog naar achter, knijp het schouderblad samen boven.",
     "Farmers carry": "Rechtop blijven, schouders naar achter, stevige grip, korte gecontroleerde passen.",
-    "Wall balls": "Volledige squat, werp de bal met de beenkracht, vang en herhaal in één vloeiende beweging."
+    "Dead hang / grip hold": "Volledig hangen aan een stang (of plate pinch), schouders actief, ademhaling rustig — bouwt de grip-uithouding op die vaak de bottleneck is bij Farmers Carry, Sandbag Lunges en SkiErg.",
+    "Wall balls": "Volledige squat, werp de bal met de beenkracht, vang en herhaal in één vloeiende beweging.",
+
+    // Alternatieven (worden getoond zodra je een machine niet aanwezig meldt en een alternatief kiest)
+    "Smith Machine Bench": "Bank recht onder de stang, voeten stevig op de grond, gecontroleerde neerwaartse beweging, ontgrendel pas na correcte uitlijning.",
+    "Dumbbel Bench": "Dumbbells starten boven de schouders, ellebogen ~45° t.o.v. het lichaam, gelijkmatige op- en neerwaartse beweging.",
+    "Machine Chest Press": "Rug plat tegen de rugsteun, handvaten op borsthoogte, duw recht naar voren zonder de schouders op te trekken.",
+    "Cable Press": "Kabels op borsthoogte, stap iets naar voren voor spanning, duw beide handvaten gelijktijdig naar voren.",
+    "Push-up variatie": "Lichaam in rechte lijn van hoofd tot hakken, handen iets breder dan schouderbreedte, ellebogen ~45° t.o.v. het lichaam.",
+    "Assisted Pull-up": "Gebruik enkel de hulp die nodig is om de volledige bewegingsuitslag te halen, trek de ellebogen actief naar beneden.",
+    "Chest Supported Row": "Borst steunt op de bank, trek de ellebogen naar achter, knijp de schouderbladen samen boven.",
+    "Single-Arm Cable Row": "Romp stabiel, trek met de elleboog naar achter, vermijd rotatie in de rug.",
+    "Hack Squat": "Rug en schouders plat tegen de rugsteun, voeten iets voor het lichaam, zak tot minstens 90°.",
+    "Leg Press": "Voeten schouderbreedte op de plaat, knieën volgen de richting van de tenen, niet volledig doorstrekken bovenaan.",
+    "RDL variant": "Lichte buiging in de knieën, zak via de heupen (hip hinge), stang/gewicht dicht bij de benen, rug recht.",
+    "Reverse Lunge": "Stap naar achter, voorste knie boven de enkel, rechtop blijven, druk af via de voorste hiel.",
+    "Single-leg Romanian Deadlift": "Steunbeen licht gebogen, kantel via de heup, vrije been strekt naar achter voor balans, rug neutraal.",
+    "Split Squat": "Voorste voet vlak, achterste hiel omhoog, zak recht naar beneden, romp rechtop.",
+    "Trap Bar Deadlift": "Sta midden in de trap bar, rug recht, duw de vloer weg met de benen, stang dicht bij het lichaam.",
+    "Goblet squat": "Houd de kettlebell/dumbbell dicht tegen de borst, ellebogen tussen de knieën bij het diepste punt, rechtop blijven.",
+    "Hip thrust": "Bovenrug op de bank, kin licht ingetrokken, duw door de hielen, knijp de billen samen bovenaan.",
+    "Step-up": "Volledige voet op de verhoging, druk af via die voet (niet afzetten met het onderste been), gecontroleerd zakken."
   };
 
   var RPE_INFO_TEXT = "RPE = ervaren inspanning. 6 = comfortabel (~4 reps reserve), 7 = behapbaar (~3 reps), 8 = zwaar (~2 reps), 9 = zeer zwaar (~1 rep). Techniek gaat altijd vóór gewicht.";
   var DELOAD_INFO_TEXT = "Deload-week: volume met ongeveer 20% verlaagd om herstel te bevorderen en overbelasting te voorkomen — een normale, ingeplande stap in de opbouw, geen terugval.";
 
+  // Algemeen opwarmprotocol vóór elke kracht-/loopsessie — vroeger verwezen STARTW hiernaar
+  // zonder dat het ooit was uitgeschreven; dit is de daadwerkelijke invulling.
+  var WARMUP_PROTOCOL_TEXT = "Algemeen (5 min): fiets/roeier rustig tempo + dynamische mobiliteit "
+    + "(heup, schouder, enkel/kuit). Specifiek per hoofdoefening: opbouwsets 50% van je werkgewicht x8 "
+    + "→ 70% x5 → 85% x3 → 95% x1 → eerste werkset op doel-RPE. Bij looptraining: 5-10 min Z1-Z2 joggen "
+    + "+ 4-6 versnellingen (strides) van 15-20 sec vóór intervallen/tempo-werk.";
+
   var STARTW = {
-    MAIN: "Bepalen via opwarmprotocol – doel-RPE zoals vermeld.",
-    MAIN2: "Bepalen via opwarmprotocol – doel-RPE zoals vermeld.",
-    ACC: "Bepalen via opwarmprotocol – doel-RPE zoals vermeld.",
+    MAIN: "Bepaal via het opwarmprotocol hieronder – daarna doel-RPE zoals vermeld.",
+    MAIN2: "Bepaal via het opwarmprotocol hieronder – daarna doel-RPE zoals vermeld.",
+    ACC: "Bepaal via het opwarmprotocol hieronder – daarna doel-RPE zoals vermeld.",
     CORE: "Lichaamsgewicht; voeg extern gewicht toe als RPE te laag is.",
-    CARRY: "Kies kettlebells/dumbbells zodat de afstand haalbaar is op doel-RPE.",
-    COND: "Kies wall ball zodat reps haalbaar zijn op doel-RPE (richtwaarde 4-6 kg dames / 6-9 kg heren)."
+    CARRY: "Farmers carry: bouw op richting het HYROX-wedstrijdgewicht per hand — Open dames 16 kg, "
+      + "Open heren 24 kg (Pro: 24 kg / 32 kg). Kies wat haalbaar is op doel-RPE.",
+    COND: "Wall balls: bouw op richting het HYROX-wedstrijdgewicht — Open dames 4 kg, Open heren 6 kg "
+      + "(Pro: 6 kg / 9 kg). Kies wat haalbaar is op doel-RPE."
   };
 
   var PHASE_SCHEME = {
@@ -348,6 +451,31 @@
       "Row – kort", "Farmers Carry – kort", "Sandbag Lunges – kort", "Wall Balls – kort"
     ] }]
   };
+
+  // Officiële HYROX-wedstrijdgewichten per station/divisie (2026/27-reglement). Zelfde oefeningen/
+  // stations voor dames en heren — enkel de belasting verschilt per divisie, dus dit is de correcte
+  // plek om dat onderscheid te maken (niet via aparte oefeningenlijsten per geslacht).
+  var HYROX_WEIGHTS = [
+    ["Sled Push (50 m)", "152 kg", "102 kg", "202 kg", "152 kg"],
+    ["Sled Pull (50 m)", "103 kg", "78 kg", "153 kg", "103 kg"],
+    ["Farmers Carry (200 m)", "2× 24 kg", "2× 16 kg", "2× 32 kg", "2× 24 kg"],
+    ["Sandbag Lunges (100 m)", "20 kg", "10 kg", "30 kg", "20 kg"],
+    ["Wall Balls (100 reps)", "6 kg", "4 kg", "9 kg", "6 kg"]
+  ];
+
+  // Bodyweight-based voedingsheuristiek (geen exacte wetenschap, wel een gangbare coaching-
+  // vuistregel) — kcal/kg ligt hoger tijdens de hoog-volume fases (Build/HYROX-specifiek) en
+  // lager tijdens de cut (fase 1) en taper (fase 5), i.p.v. één vast getal over de hele periode.
+  var NUTRITION_KCAL_PER_KG = { 1: 29, 2: 35, 3: 35, 4: 33, 5: 31 };
+  var NUTRITION_PROTEIN_PER_KG = 2.0;
+  var NUTRITION_FAT_PER_KG = 0.9;
+  function computeNutritionTargets(bodyweightKg, phaseId) {
+    var kcal = Math.round(bodyweightKg * (NUTRITION_KCAL_PER_KG[phaseId] || 32));
+    var protein = Math.round(bodyweightKg * NUTRITION_PROTEIN_PER_KG);
+    var fat = Math.round(bodyweightKg * NUTRITION_FAT_PER_KG);
+    var carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+    return { kcal: kcal, protein: protein, fat: fat, carbs: carbs };
+  }
 
   var RPE_TABLE = [
     ["6", "±4", "Comfortabel, opwarmgewicht"],
@@ -461,6 +589,16 @@
   }
 
   var PROGRAM_START, PROGRAM_END, START_DATE, END_DATE, FIRST_MONDAY, LAST_MONDAY, PHASES;
+  var PROGRAM_DIVISION = "open"; // "open" | "pro" | "mix" — gedeelde instelling (zie Info-tab)
+  var HYROX_DIVISION_LABELS = { open: "Open", pro: "Pro", mix: "Mixed Doubles" };
+  // Doelgewicht per persoon/divisie voor de twee stations waar de app een richtgewicht toont
+  // (Farmers Carry, Wall Balls). Mixed Doubles gebruikt voor beide partners de Heren Open-norm
+  // (officieel HYROX-reglement) — vandaar dat sean/vriendin daar hetzelfde doelgewicht krijgen.
+  var HYROX_DIVISION_TARGETS = {
+    open: { sean: { farmers: "24 kg", wallball: "6 kg" }, vriendin: { farmers: "16 kg", wallball: "4 kg" } },
+    pro: { sean: { farmers: "32 kg", wallball: "9 kg" }, vriendin: { farmers: "24 kg", wallball: "6 kg" } },
+    mix: { sean: { farmers: "24 kg", wallball: "6 kg" }, vriendin: { farmers: "24 kg", wallball: "6 kg" } }
+  };
 
   function applyScheduleSettings(startISO, raceISO) {
     PROGRAM_START = startISO;
@@ -505,7 +643,10 @@
     if (idx < 0) idx = 0;
     if (idx >= RUN_STAGES.length) idx = RUN_STAGES.length - 1;
     var stage = RUN_STAGES[idx];
-    var out = { label: date.toLocaleDateString("nl-BE", { month: "long" }) };
+    // Label toont de relatieve programmamaand (niet de kalendermaand): de inhoud van RUN_STAGES
+    // is opgebouwd rond "maanden sinds start", dus een kalendernaam (bv. "augustus") zou hier
+    // misleidend zijn als het programma niet op de 1e van een maand start.
+    var out = { label: "Maand " + (idx + 1) + " van je loopopbouw" };
     for (var key in stage) out[key] = stage[key];
     return out;
   }
@@ -645,6 +786,8 @@
   var WEEKMAP_SUGGESTION = null;
   var ALTMGR_SELECTED = null;
   var EDITING_PROGRESS_ID = null;
+  var OPEN_SETS_EDITORS = {}; // "iso|exName" -> true, onthoudt welke sets-editors open staan tussen rerenders
+  var SELECTED_EX_CHART = null; // welke oefening getoond wordt in "Progressie per oefening"
   var CACHE = { daily: {}, ex: {}, run: {}, circuit: {}, progress: [], together: {} };
   var listeners = [];
   var rerenderTimer = null;
@@ -803,6 +946,7 @@
       if (snap.exists) {
         var d = snap.data();
         if (d.startDate && d.raceDate) applyScheduleSettings(d.startDate, d.raceDate);
+        if (d.division && HYROX_DIVISION_LABELS[d.division]) PROGRAM_DIVISION = d.division;
       }
       if (!snap.metadata.hasPendingWrites) scheduleRerender();
     }, function (err) { console.error("settings/program listener", err); }));
@@ -840,6 +984,61 @@
     payload[field] = value;
     db.collection("exercises").doc(person + "_" + iso + "_" + slug(exName)).set(payload, { merge: true })
       .catch(function (e) { console.error("saveEx", e); showSyncError(); });
+  }
+  // Slaat één set (gewicht of reps) op binnen de sets-array van een oefening — laat andere sets
+  // ongemoeid (array wordt lokaal samengevoegd en in zijn geheel herschreven naar Firestore, want
+  // Firestore kent geen index-gebaseerde array-merge).
+  function saveExSet(iso, exName, idx, field, value) {
+    var person = getProfile();
+    CACHE.ex[person] = CACHE.ex[person] || {};
+    CACHE.ex[person][iso] = CACHE.ex[person][iso] || {};
+    CACHE.ex[person][iso][exName] = CACHE.ex[person][iso][exName] || {};
+    var oldSets = CACHE.ex[person][iso][exName].sets || [];
+    var sets = oldSets.map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
+    while (sets.length <= idx) sets.push({ weight: "", reps: "" });
+    sets[idx][field] = value;
+    CACHE.ex[person][iso][exName].sets = sets;
+    var payload = { person: person, date: iso, exercise: exName, sets: sets };
+    db.collection("exercises").doc(person + "_" + iso + "_" + slug(exName)).set(payload, { merge: true })
+      .catch(function (e) { console.error("saveExSet", e); showSyncError(); });
+  }
+  function addExSetRow(iso, exName) {
+    var person = getProfile();
+    var existing = (CACHE.ex[person] && CACHE.ex[person][iso] && CACHE.ex[person][iso][exName] && CACHE.ex[person][iso][exName].sets) || [];
+    saveExSet(iso, exName, existing.length, "weight", "");
+  }
+  function removeExSetRow(iso, exName) {
+    var person = getProfile();
+    var existing = (CACHE.ex[person] && CACHE.ex[person][iso] && CACHE.ex[person][iso][exName] && CACHE.ex[person][iso][exName].sets) || [];
+    if (existing.length <= 1) return;
+    var sets = existing.slice(0, -1);
+    CACHE.ex[person][iso][exName].sets = sets;
+    var payload = { person: person, date: iso, exercise: exName, sets: sets };
+    db.collection("exercises").doc(person + "_" + iso + "_" + slug(exName)).set(payload, { merge: true })
+      .catch(function (e) { console.error("removeExSetRow", e); showSyncError(); });
+    render();
+  }
+  // Haalt het aantal sets uit een "NxM"-prescriptietekst ("4x8" -> 4).
+  function parseSetCount(setsReps) {
+    var m = String(setsReps).match(/^(\d+)\s*x/i);
+    return m ? parseInt(m[1], 10) : 1;
+  }
+  // Vult ontbrekende sets aan tot minstens `count` lege sets, en migreert oude vlakke
+  // weight/reps-invoer (van vóór per-set-logging) naar set 1 zodat die data niet verloren gaat.
+  function normalizeExSets(saved, count) {
+    var sets = (saved.sets || []).map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
+    if (!sets.length && (saved.weight || saved.reps)) sets.push({ weight: saved.weight || "", reps: saved.reps || "" });
+    while (sets.length < count) sets.push({ weight: "", reps: "" });
+    return sets;
+  }
+  function setsSummaryText(sets, reikLabel) {
+    var filled = sets.filter(function (s) { return s.weight || s.reps; });
+    if (!filled.length) return "nog niet ingevuld";
+    var weights = sets.map(function (s) { return s.weight; }).filter(Boolean);
+    var uniqueWeights = weights.filter(function (w, i) { return weights.indexOf(w) === i; });
+    var weightStr = uniqueWeights.length === 1 ? uniqueWeights[0] + " kg" : (uniqueWeights.length ? uniqueWeights.join("/") + " kg" : "");
+    var repsStr = sets.map(function (s) { return s.reps || "–"; }).join(", ");
+    return (weightStr ? weightStr + " · " : "") + repsStr + (reikLabel ? " " + reikLabel : "");
   }
 
   function addCustomExercise(iso) {
@@ -910,6 +1109,27 @@
       { startDate: startISO, raceDate: raceISO, updatedAt: Date.now() }, { merge: true }
     ).catch(function (e) { console.error("saveProgramSettings", e); showSyncError(); });
     render();
+  }
+  function saveDivision(division) {
+    if (!HYROX_DIVISION_LABELS[division]) return;
+    PROGRAM_DIVISION = division;
+    db.collection("settings").doc("program").set(
+      { division: division, updatedAt: Date.now() }, { merge: true }
+    ).catch(function (e) { console.error("saveDivision", e); showSyncError(); });
+    render();
+  }
+  // Geeft het STARTW-richtlijntekst voor CARRY/COND, gepersonaliseerd naar divisie + profiel
+  // (sean=heren-doelgewicht, vriendin=dames-doelgewicht, tenzij Mixed Doubles: dan gelijk).
+  function startWeightGuidanceFor(cat, person) {
+    var targets = HYROX_DIVISION_TARGETS[PROGRAM_DIVISION] && HYROX_DIVISION_TARGETS[PROGRAM_DIVISION][person];
+    var divisionLabel = HYROX_DIVISION_LABELS[PROGRAM_DIVISION] || "Open";
+    if (cat === "CARRY" && targets) {
+      return "Farmers carry: bouw op richting je HYROX-doelgewicht (" + divisionLabel + "): " + targets.farmers + " per hand. Kies wat haalbaar is op doel-RPE.";
+    }
+    if (cat === "COND" && targets) {
+      return "Wall balls: bouw op richting je HYROX-doelgewicht (" + divisionLabel + "): " + targets.wallball + ". Kies wat haalbaar is op doel-RPE.";
+    }
+    return STARTW[cat];
   }
 
   // Voegt patch recursief samen in target (nested objecten mergen i.p.v. overschrijven; arrays vervangen als geheel).
@@ -1245,13 +1465,23 @@
 
   /* ---- video-popup: kleine, verplaatsbare/sluitbare oefeningsvideo (YouTube/Vimeo/mp4) ---- */
 
+  // "__none__" = gebruiker koos expliciet "geen video" voor deze oefening (onderdrukt de
+  // standaardvideo hieronder). Een lege prompt-invoer wordt naar dit sentinel omgezet.
+  var VIDEO_NONE = "__none__";
   function saveExerciseVideo(key, url) {
     var patch = { exerciseVideos: {} };
-    patch.exerciseVideos[key] = url;
+    patch.exerciseVideos[key] = url || VIDEO_NONE;
     savePersonalPatch(patch);
   }
   function getExerciseVideo(key, person) {
-    return (PERSONAL[person] && PERSONAL[person].exerciseVideos && PERSONAL[person].exerciseVideos[key]) || "";
+    var personal = PERSONAL[person] && PERSONAL[person].exerciseVideos && PERSONAL[person].exerciseVideos[key];
+    if (personal === VIDEO_NONE) return "";
+    if (personal) return personal;
+    return EXERCISE_VIDEOS_DEFAULT[key] || "";
+  }
+  function isDefaultVideo(key, person) {
+    var personal = PERSONAL[person] && PERSONAL[person].exerciseVideos && PERSONAL[person].exerciseVideos[key];
+    return !personal && !!EXERCISE_VIDEOS_DEFAULT[key];
   }
 
   function toEmbedInfo(url) {
@@ -1758,9 +1988,12 @@
     Object.keys(history).forEach(function (date) {
       if (date >= iso) return;
       var e = history[date] && history[date][name];
-      if (e && e.weight !== undefined && e.weight !== "" && e.reps !== undefined && e.reps !== "") {
-        entries.push({ date: date, weight: parseFloat(e.weight), reps: parseFloat(e.reps) });
-      }
+      var sets = (e && e.sets) || (e && (e.weight || e.reps) ? [{ weight: e.weight, reps: e.reps }] : []);
+      var filled = sets.filter(function (s) { return s && s.weight !== undefined && s.weight !== "" && s.reps !== undefined && s.reps !== ""; });
+      if (!filled.length) return;
+      var weight = parseFloat(filled[0].weight);
+      var minReps = Math.min.apply(null, filled.map(function (s) { return parseFloat(s.reps); }));
+      if (!isNaN(weight) && !isNaN(minReps)) entries.push({ date: date, weight: weight, reps: minReps });
     });
     entries.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     var lastTwo = entries.slice(-2);
@@ -1771,6 +2004,32 @@
       return "💡 Laatste 2 sessies op " + lastTwo[1].weight + " kg: telkens alle reps gehaald — overweeg extra gewicht.";
     }
     return "";
+  }
+
+  // Inklapbare per-set invoer (gewicht + reps per set, i.p.v. één totaalveld) — dicht bij het
+  // "4 sets" uit het schema. `allowAddRemove` geeft custom-oefeningen (zonder vast schema) een
+  // +/− knop om het aantal sets zelf te bepalen.
+  function setsEditorHTML(iso, exName, sets, repsFieldLabel, allowAddRemove) {
+    var isOpen = !!OPEN_SETS_EDITORS[iso + "|" + exName];
+    var html = "<details class=\"sets-editor\" data-ex-name=\"" + esc(iso + "|" + exName) + "\"" + (isOpen ? " open" : "") + "><summary>" + sets.length + " sets — " + esc(setsSummaryText(sets)) + "</summary>";
+    html += "<div class=\"sets-rows\">";
+    html += "<div class=\"set-row set-row-header\"><span></span><span>Gewicht (kg)</span><span>" + esc(repsFieldLabel) + "</span></div>";
+    sets.forEach(function (s, idx) {
+      html += "<div class=\"set-row\">";
+      html += "<span class=\"set-idx\">Set " + (idx + 1) + "</span>";
+      html += "<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"exset\" data-date=\"" + iso + "\" data-ex=\"" + esc(exName) + "\" data-setidx=\"" + idx + "\" data-field=\"weight\" value=\"" + esc(s.weight || "") + "\">";
+      html += "<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"exset\" data-date=\"" + iso + "\" data-ex=\"" + esc(exName) + "\" data-setidx=\"" + idx + "\" data-field=\"reps\" value=\"" + esc(s.reps || "") + "\">";
+      html += "</div>";
+    });
+    html += "</div>";
+    if (allowAddRemove) {
+      html += "<div class=\"btn-row\">";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exset-add=\"" + esc(exName) + "\" data-date=\"" + iso + "\">+ Set</button>";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exset-remove=\"" + esc(exName) + "\" data-date=\"" + iso + "\">− Set</button>";
+      html += "</div>";
+    }
+    html += "</details>";
+    return html;
   }
 
   function strengthTableHTML(iso, phaseId, role) {
@@ -1799,7 +2058,8 @@
       }
       html += "<div class=\"ex-row\">";
       if (altPlan) {
-        html += "<div class=\"ex-name\">" + esc(altPlan.label) + "</div>";
+        var altNameHTML = EXERCISE_INFO[altPlan.label] ? infoPop(altPlan.label, EXERCISE_INFO[altPlan.label]) : esc(altPlan.label);
+        html += "<div class=\"ex-name\">" + altNameHTML + "</div>";
         html += "<div class=\"ex-alt-note\">vervangt: " + esc(name) + "</div>";
       } else {
         html += "<div class=\"ex-name\">" + nameHTML + "</div>";
@@ -1812,12 +2072,15 @@
       }
       var videoKey = altPlan ? altPlan.label : name;
       var videoUrl = getExerciseVideo(videoKey, person);
-      html += "<button type=\"button\" class=\"video-btn" + (videoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(videoKey) + "\" data-video-url=\"" + esc(videoUrl) + "\">" + (videoUrl ? "▶ Video" : "🎬 Video toevoegen") + "</button>";
+      var videoBtnLabel = videoUrl ? ("▶ Video" + (isDefaultVideo(videoKey, person) ? " (standaard)" : "")) : "🎬 Video toevoegen";
+      html += "<button type=\"button\" class=\"video-btn" + (videoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(videoKey) + "\" data-video-url=\"" + esc(videoUrl) + "\">" + videoBtnLabel + "</button>";
+      var repsFieldLabel = REPS_FIELD_LABEL[cat] || "Reps behaald";
+      var sets = normalizeExSets(saved, parseSetCount(setsReps));
+      html += setsEditorHTML(iso, name, sets, repsFieldLabel, false);
       html += "<div class=\"ex-inputs\">";
-      html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + esc(saved.weight || "") + "\"></label>";
-      html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + esc(saved.reps || "") + "\"></label>";
       html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], status, "ex", iso, "status", name) + "</label>";
       html += "<label>Alternatief" + selectHTML([""].concat(altOptions.map(function (a) { return a.label; })), alt, "ex", iso, "alternative", name) + "</label>";
+      html += "<label>Notities<textarea data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"notes\" rows=\"2\" placeholder=\"bv. hoe het voelde, techniekpunt...\">" + esc(saved.notes || "") + "</textarea></label>";
       html += "</div></div>";
     });
     var customRows = Object.keys(exData || {}).filter(function (name) {
@@ -1829,7 +2092,8 @@
       var customAlt = saved.alternative || "";
       html += "<div class=\"ex-row custom-row\">";
       if (customAlt) {
-        html += "<div class=\"ex-name\">" + esc(customAlt) + "</div>";
+        var customAltNameHTML = EXERCISE_INFO[customAlt] ? infoPop(customAlt, EXERCISE_INFO[customAlt]) : esc(customAlt);
+        html += "<div class=\"ex-name\">" + customAltNameHTML + "</div>";
         html += "<div class=\"ex-alt-note\">vervangt: " + esc(name) + "</div>";
       } else {
         html += "<div class=\"ex-name\">" + esc(name) + "</div>";
@@ -1837,19 +2101,30 @@
       html += "<div class=\"ex-presc\">Aangepaste oefening</div>";
       var customVideoKey = customAlt || name;
       var customVideoUrl = getExerciseVideo(customVideoKey, person);
-      html += "<button type=\"button\" class=\"video-btn" + (customVideoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(customVideoKey) + "\" data-video-url=\"" + esc(customVideoUrl) + "\">" + (customVideoUrl ? "▶ Video" : "🎬 Video toevoegen") + "</button>";
+      var customVideoBtnLabel = customVideoUrl ? ("▶ Video" + (isDefaultVideo(customVideoKey, person) ? " (standaard)" : "")) : "🎬 Video toevoegen";
+      html += "<button type=\"button\" class=\"video-btn" + (customVideoUrl ? " has-video" : "") + "\" data-video-key=\"" + esc(customVideoKey) + "\" data-video-url=\"" + esc(customVideoUrl) + "\">" + customVideoBtnLabel + "</button>";
+      var customSets = normalizeExSets(saved, 1);
+      html += setsEditorHTML(iso, name, customSets, "Reps behaald", true);
       html += "<div class=\"ex-inputs\">";
-      html += "<label>Gewicht (kg)<input type=\"number\" step=\"0.5\" inputmode=\"decimal\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"weight\" value=\"" + esc(saved.weight || "") + "\"></label>";
-      html += "<label>Reps behaald<input type=\"number\" step=\"1\" inputmode=\"numeric\" data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"reps\" value=\"" + esc(saved.reps || "") + "\"></label>";
       html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], saved.status || "planned", "ex", iso, "status", name) + "</label>";
       var customAltOptions = getAlternativesFor(name, person);
       html += "<label>Alternatief" + selectHTML([""].concat(customAltOptions.map(function (a) { return a.label; })), saved.alternative || "", "ex", iso, "alternative", name) + "</label>";
+      html += "<label>Notities<textarea data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"notes\" rows=\"2\" placeholder=\"bv. hoe het voelde, techniekpunt...\">" + esc(saved.notes || "") + "</textarea></label>";
       html += "<button type=\"button\" class=\"btn btn-danger btn-sm\" data-delete-exercise=\"" + esc(name) + "\" data-date=\"" + iso + "\">Verwijderen</button>";
       html += "</div></div>";
     });
     html += "<div class=\"row-spacer\"></div>";
     html += "<button type=\"button\" class=\"btn btn-outline btn-block\" data-add-custom-exercise=\"" + iso + "\">+ Oefening toevoegen</button>";
-    html += "<p class=\"small\">Startgewicht-richtlijn: " + esc(STARTW.MAIN) + " Techniek gaat altijd vóór gewicht.</p>";
+    html += "<p class=\"small\">" + infoPop("Opwarmprotocol", WARMUP_PROTOCOL_TEXT) + "</p>";
+    var catsPresent = {};
+    exList.forEach(function (pair) { catsPresent[pair[1]] = true; });
+    if (catsPresent.MAIN || catsPresent.MAIN2 || catsPresent.ACC) {
+      html += "<p class=\"small\">" + esc(STARTW.MAIN) + "</p>";
+    }
+    if (catsPresent.CORE) html += "<p class=\"small\">" + esc(CAT_LABELS.CORE) + ": " + esc(STARTW.CORE) + "</p>";
+    if (catsPresent.CARRY) html += "<p class=\"small\">" + esc(CAT_LABELS.CARRY) + ": " + esc(startWeightGuidanceFor("CARRY", person)) + "</p>";
+    if (catsPresent.COND) html += "<p class=\"small\">" + esc(CAT_LABELS.COND) + ": " + esc(startWeightGuidanceFor("COND", person)) + "</p>";
+    html += "<p class=\"small\">Techniek gaat altijd vóór gewicht.</p>";
     return html;
   }
 
@@ -2071,6 +2346,32 @@
     return metric.type === "time" ? collectProgressTimeSeries(person, metric.key) : collectProgressNumericSeries(person, metric.key);
   }
 
+  // Alle oefeningnamen die deze persoon ooit gelogd heeft (incl. custom/alternatieven), voor de
+  // "Progressie per oefening"-keuzelijst op Voortgang.
+  function getAllLoggedExerciseNames(person) {
+    var seen = {}, names = [];
+    var byDate = CACHE.ex[person] || {};
+    Object.keys(byDate).forEach(function (date) {
+      Object.keys(byDate[date]).forEach(function (name) { if (!seen[name]) { seen[name] = true; names.push(name); } });
+    });
+    return names.sort();
+  }
+  // Topset-gewicht per dag voor een oefening (max. over alle gelogde sets die dag) — werkt met
+  // zowel de nieuwe per-set data als oudere platte weight/reps-logs.
+  function collectExerciseSeries(person, exName) {
+    var map = {};
+    var byDate = CACHE.ex[person] || {};
+    Object.keys(byDate).forEach(function (date) {
+      var e = byDate[date][exName];
+      if (!e) return;
+      var sets = e.sets || (e.weight || e.reps ? [{ weight: e.weight, reps: e.reps }] : []);
+      var weights = sets.map(function (s) { return parseFloat(s && s.weight); }).filter(function (w) { return !isNaN(w); });
+      if (weights.length) map[date] = Math.max.apply(null, weights);
+    });
+    var dates = Object.keys(map).sort();
+    return dates.map(function (d) { return { date: d, value: map[d] }; });
+  }
+
   function drawMultiSparkline(canvas, series, opts) {
     opts = opts || {};
     var formatValue = opts.formatValue || function (v) { return v.toFixed(1) + (opts.unit ? " " + opts.unit : ""); };
@@ -2131,6 +2432,17 @@
     ctx.fillText(formatNLShort(new Date(tMax)), padL + plotW, h - 4);
   }
 
+  function drawExerciseChart() {
+    var canvas = document.getElementById("ex-chart");
+    var select = document.getElementById("ex-chart-select");
+    if (!canvas || !select || !select.value) return;
+    var exName = select.value;
+    drawMultiSparkline(canvas, [
+      { color: PERSON_COLORS[getProfile()], points: collectExerciseSeries(getProfile(), exName) },
+      { color: PERSON_COLORS[otherProfile()], points: collectExerciseSeries(otherProfile(), exName) }
+    ], { unit: "kg" });
+  }
+
   function startWeightDeltaHTML(person) {
     var prof = PERSONAL[person] || {};
     if (!prof.startWeight) return "";
@@ -2174,6 +2486,22 @@
       html += "<canvas class=\"sparkline\" id=\"chart-" + m.key + "\"></canvas>";
       html += "</div>";
     });
+
+    var myExNames = getAllLoggedExerciseNames(me);
+    if (myExNames.length) {
+      var exChartSelected = SELECTED_EX_CHART && myExNames.indexOf(SELECTED_EX_CHART) !== -1 ? SELECTED_EX_CHART : myExNames[0];
+      html += "<div class=\"card\"><h3 class=\"card-title\">Progressie per oefening</h3>";
+      html += "<p class=\"small\">Topset-gewicht per sessie (hoogste van je gelogde sets die dag).</p>";
+      html += "<label class=\"field\">Oefening<select id=\"ex-chart-select\">" +
+        myExNames.map(function (n) { return "<option value=\"" + esc(n) + "\"" + (n === exChartSelected ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") +
+        "</select></label>";
+      html += "<div class=\"legend\">" +
+        "<span><span class=\"dot-inline\" style=\"background:" + PERSON_COLORS[me] + "\"></span>Jij (" + esc(PERSON_LABELS[me]) + ")</span>" +
+        "<span><span class=\"dot-inline\" style=\"background:" + PERSON_COLORS[partner] + "\"></span>" + esc(PERSON_LABELS[partner]) + "</span>" +
+        "</div>";
+      html += "<canvas class=\"sparkline\" id=\"ex-chart\"></canvas>";
+      html += "</div>";
+    }
 
     html += "<div class=\"card\"><h3 class=\"card-title\">Voortgangsfoto's</h3>";
     var photos = collectPhotos();
@@ -2452,6 +2780,17 @@
     html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Opslaan &amp; herberekenen</button>";
     html += "</form></div>";
 
+    html += "<div class=\"card\"><h3 class=\"card-title\">HYROX-divisie</h3>";
+    html += "<p class=\"small\">Gedeeld voor jullie beiden — bepaalt de doelgewichten die de app toont bij Farmers Carry en Wall Balls (zie krachttraining-sessies) en de referentietabel hieronder.</p>";
+    html += "<form id=\"division-form\">";
+    html += "<label class=\"field\">Divisie<select name=\"division\">" +
+      Object.keys(HYROX_DIVISION_LABELS).map(function (d) {
+        return "<option value=\"" + d + "\"" + (d === PROGRAM_DIVISION ? " selected" : "") + ">" + esc(HYROX_DIVISION_LABELS[d]) + "</option>";
+      }).join("") +
+      "</select></label>";
+    html += "<button type=\"submit\" class=\"btn btn-outline btn-block\">Opslaan</button>";
+    html += "</form></div>";
+
     html += "<div class=\"card\"><h3 class=\"card-title\">RPE / RIR</h3>";
     html += tableHTML(["RPE", "RIR", "Gevoel"], RPE_TABLE.map(function (r) { return [esc(r[0]), esc(r[1]), esc(r[2])]; }));
     html += "</div>";
@@ -2461,12 +2800,41 @@
     html += "<p class=\"small\">Gebaseerd op 220 - 24 jaar. Verfijn dit met de automatische zone-detectie van je Garmin Forerunner 965.</p>";
     html += "</div>";
 
+    html += "<div class=\"card\"><h3 class=\"card-title\">HYROX-wedstrijdgewichten per divisie</h3>";
+    html += "<p class=\"small\">Dames en heren doen dezelfde stations/oefeningen — enkel de belasting verschilt "
+      + "per divisie (officieel 2026/27-reglement). Dames Pro = Heren Open op elk station.</p>";
+    html += tableHTML(["Station", "Heren Open", "Dames Open", "Heren Pro", "Dames Pro"], HYROX_WEIGHTS.map(function (r) {
+      return [esc(r[0]), esc(r[1]), esc(r[2]), esc(r[3]), esc(r[4])];
+    }));
+    html += "<p class=\"small\">Mixed Doubles gebruikt voor beide partners de Heren Open-gewichten hierboven "
+      + "(enige uitzondering: bij Wall Balls mikt de mannelijke partner op 3,0 m hoogte, de vrouwelijke op 2,74 m "
+      + "— het gewicht van de bal, 6 kg, is wel voor beiden gelijk).</p>";
+    html += "</div>";
+
     html += "<div class=\"card\"><h3 class=\"card-title\">Voedingsdoelen</h3>";
-    html += tableHTML(["Doel", "Waarde"], [
-      ["Trainingsdag", "2200 kcal"], ["Rustdag", "2100 kcal"],
-      ["Eiwit", "190-200 g/dag"], ["Vet", "60-70 g/dag"],
-      ["Stappen", "min. 8.000, richtwaarde 10.000-12.000"]
-    ]);
+    var nutritionPerson = getProfile();
+    var nutritionWeightSeries = collectWeightSeries(nutritionPerson);
+    var nutritionBodyweight = nutritionWeightSeries.length
+      ? nutritionWeightSeries[nutritionWeightSeries.length - 1].value
+      : parseFloat((PERSONAL[nutritionPerson] && PERSONAL[nutritionPerson].startWeight) || "");
+    if (nutritionBodyweight && !isNaN(nutritionBodyweight)) {
+      html += "<p class=\"small\">Berekend o.b.v. je " + (nutritionWeightSeries.length ? "laatst gelogde" : "start") + "gewicht ("
+        + nutritionBodyweight.toFixed(1) + " kg) — richtwaarden, geen exacte wetenschap. Eiwit " + NUTRITION_PROTEIN_PER_KG
+        + " g/kg, vet " + NUTRITION_FAT_PER_KG + " g/kg; calorieën liggen hoger in de hoog-volume fases (2-3) en lager "
+        + "tijdens de cut (fase 1) en taper (fase 5) — dat is precies waarom vaste cijfers over de hele periode niet klopten.</p>";
+      html += tableHTML(["Fase", "Kcal/dag", "Eiwit (g)", "Vet (g)", "Koolh. (g)"], PHASE_META.map(function (ph) {
+        var t = computeNutritionTargets(nutritionBodyweight, ph.id);
+        return [esc(ph.name), t.kcal, t.protein, t.fat, t.carbs];
+      }));
+      html += "<p class=\"small\">Rustdag: reken gerust 100-200 kcal (koolhydraten) minder dan de tabel. Zware simulatie-/wedstrijddag: gerust meer.</p>";
+    } else {
+      html += "<p class=\"small\">Vul je gewicht in (dagelijkse checklist, of \"Ik\" → Startgewicht) voor een berekening op maat per fase. Tot dan een algemene richtwaarde voor fase 1:</p>";
+      html += tableHTML(["Doel", "Waarde"], [
+        ["Trainingsdag", "2200 kcal"], ["Rustdag", "2100 kcal"],
+        ["Eiwit", "190-200 g/dag"], ["Vet", "60-70 g/dag"]
+      ]);
+    }
+    html += "<p class=\"small\">Stappen: min. 8.000/dag, richtwaarde 10.000-12.000.</p>";
     html += "</div>";
 
     html += "<div class=\"card\"><h3 class=\"card-title\">Fasedata</h3>";
@@ -2516,13 +2884,16 @@
     downloadCSV("hyrox_dagelijkse_data.csv", rows);
   }
   function exportEx() {
-    var rows = [["Persoon", "Datum", "Oefening", "Gewicht(kg)", "Reps"]];
+    var rows = [["Persoon", "Datum", "Oefening", "Sets (gewicht kg × reps)", "Notities"]];
     ["sean", "vriendin"].forEach(function (person) {
       var byDate = CACHE.ex[person] || {};
       Object.keys(byDate).sort().forEach(function (date) {
         Object.keys(byDate[date]).forEach(function (exName) {
           var v = byDate[date][exName];
-          rows.push([PERSON_LABELS[person], date, exName, v.weight || "", v.reps || ""]);
+          var sets = v.sets || (v.weight || v.reps ? [{ weight: v.weight, reps: v.reps }] : []);
+          var setsStr = sets.filter(function (s) { return s && (s.weight || s.reps); })
+            .map(function (s) { return (s.weight || "?") + "kg×" + (s.reps || "?"); }).join(", ");
+          rows.push([PERSON_LABELS[person], date, exName, setsStr, v.notes || ""]);
         });
       });
     });
@@ -2715,6 +3086,14 @@
           { color: PERSON_COLORS[otherProfile()], points: metricSeries(m, otherProfile()) }
         ], m.type === "time" ? { formatValue: formatMinSec } : { unit: m.unit });
       });
+      drawExerciseChart();
+      var exChartSelect = document.getElementById("ex-chart-select");
+      if (exChartSelect) {
+        exChartSelect.addEventListener("change", function () {
+          SELECTED_EX_CHART = exChartSelect.value;
+          drawExerciseChart();
+        });
+      }
       bindProgressView();
     }
     if (r.route === "ik") {
@@ -2751,6 +3130,8 @@
       if (t.dataset.field === "alternative") {
         scheduleRerender();
       }
+    } else if (store === "exset") {
+      saveExSet(date, t.dataset.ex, parseInt(t.dataset.setidx, 10), t.dataset.field, t.value);
     } else if (store === "run") {
       saveRun(date, t.dataset.field, t.value);
     } else if (store === "circuit") {
@@ -2762,6 +3143,18 @@
     var videoBtn = e.target.closest && e.target.closest("[data-video-key]");
     if (videoBtn) {
       handleVideoButtonClick(videoBtn.getAttribute("data-video-key"), videoBtn.getAttribute("data-video-url"), getProfile());
+      return;
+    }
+
+    var addSetBtn = e.target.closest && e.target.closest("[data-exset-add]");
+    if (addSetBtn) {
+      addExSetRow(addSetBtn.getAttribute("data-date"), addSetBtn.getAttribute("data-exset-add"));
+      scheduleRerender();
+      return;
+    }
+    var removeSetBtn = e.target.closest && e.target.closest("[data-exset-remove]");
+    if (removeSetBtn) {
+      removeExSetRow(removeSetBtn.getAttribute("data-date"), removeSetBtn.getAttribute("data-exset-remove"));
       return;
     }
 
@@ -3083,6 +3476,14 @@
         saveProgramSettings(startDate, raceDate);
       });
     }
+    var divisionForm = document.getElementById("division-form");
+    if (divisionForm) {
+      divisionForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var division = new FormData(divisionForm).get("division");
+        saveDivision(division);
+      });
+    }
   }
 
   /* ------------------------------------------------------------------ *
@@ -3097,6 +3498,15 @@
     viewEl.addEventListener("input", handleFieldChange);
     viewEl.addEventListener("change", handleFieldChange);
     viewEl.addEventListener("click", handleViewClick);
+    // "toggle" op <details> bubbelt niet — capture-phase delegatie onthoudt open/dicht-status
+    // van de sets-editors zodat ze niet dichtklappen bij een rerender (bv. door sync).
+    viewEl.addEventListener("toggle", function (e) {
+      var details = e.target;
+      if (details && details.classList && details.classList.contains("sets-editor")) {
+        var key = details.getAttribute("data-ex-name");
+        if (key) OPEN_SETS_EDITORS[key] = details.open;
+      }
+    }, true);
 
     window.addEventListener("hashchange", render);
     if (!location.hash) location.hash = "#/";
