@@ -994,7 +994,11 @@
     CACHE.ex[person] = CACHE.ex[person] || {};
     CACHE.ex[person][iso] = CACHE.ex[person][iso] || {};
     CACHE.ex[person][iso][exName] = CACHE.ex[person][iso][exName] || {};
-    var oldSets = CACHE.ex[person][iso][exName].sets || [];
+    var entry = CACHE.ex[person][iso][exName];
+    // Migreer oude vlakke weight/reps (van vóór per-set-logging) net als normalizeExSets doet —
+    // anders verdwijnt bv. een al gelogd gewicht zodra je enkel het reps-veld van zo'n oefening
+    // aanpast (er bestond nog geen .sets-array om uit te lezen).
+    var oldSets = entry.sets && entry.sets.length ? entry.sets : ((entry.weight || entry.reps) ? [{ weight: entry.weight || "", reps: entry.reps || "" }] : []);
     var sets = oldSets.map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
     while (sets.length <= idx) sets.push({ weight: "", reps: "" });
     sets[idx][field] = value;
@@ -2037,7 +2041,11 @@
       var filled = sets.filter(function (s) { return s && s.weight !== undefined && s.weight !== "" && s.reps !== undefined && s.reps !== ""; });
       if (!filled.length) return;
       var weight = parseFloat(filled[0].weight);
-      var minReps = Math.min.apply(null, filled.map(function (s) { return parseFloat(s.reps); }));
+      // Enkel de sets ophalen die op dat eerste gewicht gebeurden (bv. bij piramide-sets met
+      // oplopend gewicht anders het minimum van een ander, zwaarder gewicht zou meetellen).
+      var sameWeightReps = filled.filter(function (s) { return parseFloat(s.weight) === weight; })
+        .map(function (s) { return parseFloat(s.reps); });
+      var minReps = Math.min.apply(null, sameWeightReps);
       if (!isNaN(weight) && !isNaN(minReps)) entries.push({ date: date, weight: weight, reps: minReps });
     });
     entries.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
@@ -2057,7 +2065,8 @@
   // +/− knop om het aantal sets zelf te bepalen.
   function setsEditorHTML(iso, exName, sets, repsFieldLabel, allowAddRemove) {
     var isOpen = !!OPEN_SETS_EDITORS[iso + "|" + exName];
-    var html = "<details class=\"sets-editor\" data-ex-name=\"" + esc(iso + "|" + exName) + "\"" + (isOpen ? " open" : "") + "><summary>" + sets.length + " sets — " + esc(setsSummaryText(sets)) + "</summary>";
+    var summaryUnit = repsFieldLabel === "Tijd (sec)" ? "sec" : repsFieldLabel === "Afstand (m)" ? "m" : "";
+    var html = "<details class=\"sets-editor\" data-ex-name=\"" + esc(iso + "|" + exName) + "\"" + (isOpen ? " open" : "") + "><summary>" + sets.length + " sets — " + esc(setsSummaryText(sets, summaryUnit)) + "</summary>";
     html += "<div class=\"sets-rows\">";
     html += "<div class=\"set-row set-row-header\"><span></span><span>Gewicht (kg)</span><span>" + esc(repsFieldLabel) + "</span></div>";
     sets.forEach(function (s, idx) {
