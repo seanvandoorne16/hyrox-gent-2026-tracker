@@ -2021,7 +2021,11 @@
 
   // Eenvoudige, op loggeschiedenis gebaseerde progressie-hint: als de laatste 2 gelogde sessies
   // op hetzelfde gewicht allebei het doelaantal reps haalden, stel voor om het gewicht te verhogen.
-  function progressionHint(name, person, iso, setsReps) {
+  // CORE-oefeningen loggen seconden en CARRY meters in hetzelfde veld als reps (zie
+  // REPS_FIELD_LABEL) — de hint-tekst moet daarom hetzelfde woord gebruiken, anders spreekt
+  // "alle reps gehaald" een houding van 45 seconden of een carry van 40 meter tegen.
+  var PROGRESSION_HINT_UNIT = { CORE: "seconden", CARRY: "meter" };
+  function progressionHint(name, person, iso, setsReps, cat) {
     var target = parseTargetReps(setsReps);
     if (!target) return "";
     var history = CACHE.ex[person] || {};
@@ -2042,7 +2046,8 @@
     var sameWeight = lastTwo[0].weight === lastTwo[1].weight && !isNaN(lastTwo[0].weight);
     var bothAtTarget = lastTwo.every(function (e) { return e.reps >= target; });
     if (sameWeight && bothAtTarget) {
-      return "💡 Laatste 2 sessies op " + lastTwo[1].weight + " kg: telkens alle reps gehaald — overweeg extra gewicht.";
+      var unit = PROGRESSION_HINT_UNIT[cat] || "reps";
+      return "💡 Laatste 2 sessies op " + lastTwo[1].weight + " kg: telkens alle " + unit + " gehaald — overweeg extra gewicht.";
     }
     return "";
   }
@@ -2108,7 +2113,7 @@
       html += "<div class=\"ex-presc\">" + esc(setsReps) + " · " + infoPop("RPE " + rpe, RPE_INFO_TEXT) + " · rust " + esc(rest) + "</div>";
       html += "<div class=\"ex-note\">" + esc(prog) + "</div>";
       if (!altPlan) {
-        var hint = progressionHint(name, person, iso, setsReps);
+        var hint = progressionHint(name, person, iso, setsReps, cat);
         if (hint) html += "<div class=\"ex-hint\">" + esc(hint) + "</div>";
       }
       var videoKey = altPlan ? altPlan.label : name;
@@ -2121,7 +2126,7 @@
       html += setsEditorHTML(iso, name, sets, repsFieldLabel, true);
       html += "<div class=\"ex-inputs\">";
       html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], status, "ex", iso, "status", name) + "</label>";
-      html += "<label>Alternatief" + selectHTML([""].concat(altOptions.map(function (a) { return a.label; })), alt, "ex", iso, "alternative", name) + "</label>";
+      html += "<label>Alternatief" + selectHTML(withLegacyOption([""].concat(altOptions.map(function (a) { return a.label; })), alt), alt, "ex", iso, "alternative", name) + "</label>";
       html += "<label>Notities<textarea data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"notes\" rows=\"2\" placeholder=\"bv. hoe het voelde, techniekpunt...\">" + esc(saved.notes || "") + "</textarea></label>";
       html += "</div></div>";
     });
@@ -2151,7 +2156,7 @@
       html += "<div class=\"ex-inputs\">";
       html += "<label>Status" + selectHTML(["planned", "machine niet aanwezig", "alternatief"], saved.status || "planned", "ex", iso, "status", name) + "</label>";
       var customAltOptions = getAlternativesFor(name, person);
-      html += "<label>Alternatief" + selectHTML([""].concat(customAltOptions.map(function (a) { return a.label; })), saved.alternative || "", "ex", iso, "alternative", name) + "</label>";
+      html += "<label>Alternatief" + selectHTML(withLegacyOption([""].concat(customAltOptions.map(function (a) { return a.label; })), saved.alternative || ""), saved.alternative || "", "ex", iso, "alternative", name) + "</label>";
       html += "<label>Notities<textarea data-store=\"ex\" data-date=\"" + iso + "\" data-ex=\"" + esc(name) + "\" data-field=\"notes\" rows=\"2\" placeholder=\"bv. hoe het voelde, techniekpunt...\">" + esc(saved.notes || "") + "</textarea></label>";
       html += "<button type=\"button\" class=\"btn btn-danger btn-sm\" data-delete-exercise=\"" + esc(name) + "\" data-date=\"" + iso + "\">Verwijderen</button>";
       html += "</div></div>";
@@ -2169,6 +2174,14 @@
     if (catsPresent.COND) html += "<p class=\"small\">" + esc(CAT_LABELS.COND) + ": " + esc(startWeightGuidanceFor("COND", person)) + "</p>";
     html += "<p class=\"small\">Techniek gaat altijd vóór gewicht.</p>";
     return html;
+  }
+
+  // Zorgt dat een reeds opgeslagen waarde die niet (meer) in `options` voorkomt — bv. een oude
+  // vrije-tekstinvoer van vóór dit veld een <select> werd — niet stilletjes verdwijnt uit de
+  // keuzelijst (en dus ook niet stilletjes uit de opgeslagen data lijkt te verdwijnen).
+  function withLegacyOption(options, current) {
+    if (current && options.indexOf(current) === -1) return [current].concat(options);
+    return options;
   }
 
   function selectHTML(options, current, store, date, field, exName) {
