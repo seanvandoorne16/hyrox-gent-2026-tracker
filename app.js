@@ -1003,20 +1003,15 @@
     db.collection("exercises").doc(person + "_" + iso + "_" + slug(exName)).set(payload, { merge: true })
       .catch(function (e) { console.error("saveExSet", e); showSyncError(); });
   }
-  function addExSetRow(iso, exName) {
-    var person = getProfile();
-    var existing = (CACHE.ex[person] && CACHE.ex[person][iso] && CACHE.ex[person][iso][exName] && CACHE.ex[person][iso][exName].sets) || [];
-    saveExSet(iso, exName, existing.length, "weight", "");
+  // `currentCount` komt van de al-gerenderde sets-editor (sets.length na normalizeExSets), niet
+  // van de ruwe opgeslagen data — zo blijft dit correct ongeacht hoeveel velden al ingevuld zijn.
+  function addExSetRow(iso, exName, currentCount) {
+    saveEx(iso, exName, "setCount", currentCount + 1);
+    render();
   }
-  function removeExSetRow(iso, exName) {
-    var person = getProfile();
-    var existing = (CACHE.ex[person] && CACHE.ex[person][iso] && CACHE.ex[person][iso][exName] && CACHE.ex[person][iso][exName].sets) || [];
-    if (existing.length <= 1) return;
-    var sets = existing.slice(0, -1);
-    CACHE.ex[person][iso][exName].sets = sets;
-    var payload = { person: person, date: iso, exercise: exName, sets: sets };
-    db.collection("exercises").doc(person + "_" + iso + "_" + slug(exName)).set(payload, { merge: true })
-      .catch(function (e) { console.error("removeExSetRow", e); showSyncError(); });
+  function removeExSetRow(iso, exName, currentCount) {
+    if (currentCount <= 1) return;
+    saveEx(iso, exName, "setCount", currentCount - 1);
     render();
   }
   // Haalt het aantal sets uit een "NxM"-prescriptietekst ("4x8" -> 4).
@@ -1024,19 +1019,15 @@
     var m = String(setsReps).match(/^(\d+)\s*x/i);
     return m ? parseInt(m[1], 10) : 1;
   }
-  // Vult ontbrekende sets aan tot minstens `count` lege sets, en migreert oude vlakke
-  // weight/reps-invoer (van vóór per-set-logging) naar set 1 zodat die data niet verloren gaat.
-  function normalizeExSets(saved, count) {
-    // Enkel aanvullen tot `count` zolang er nog geen sets-array bestaat (eerste keer geopend
-    // die dag) — eenmaal de gebruiker zelf sets toevoegt/verwijdert, blijft die eigen lengte
-    // staan (anders zou "− Set" meteen weer aangevuld worden tot het voorgeschreven aantal).
-    if (saved.sets && saved.sets.length) {
-      return saved.sets.map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
-    }
-    var sets = [];
-    if (saved.weight || saved.reps) sets.push({ weight: saved.weight || "", reps: saved.reps || "" });
+  // Aantal sets = expliciet `saved.setCount` (gezet via +/− Set) indien aanwezig, anders het
+  // voorgeschreven `defaultCount`. Vult/kort de sets-array altijd tot exact dat aantal, en
+  // migreert oude vlakke weight/reps-invoer (van vóór per-set-logging) naar set 1.
+  function normalizeExSets(saved, defaultCount) {
+    var count = saved.setCount || defaultCount;
+    var sets = (saved.sets || []).map(function (s) { return { weight: (s && s.weight) || "", reps: (s && s.reps) || "" }; });
+    if (!sets.length && (saved.weight || saved.reps)) sets.push({ weight: saved.weight || "", reps: saved.reps || "" });
     while (sets.length < count) sets.push({ weight: "", reps: "" });
-    return sets;
+    return sets.slice(0, count);
   }
   function setsSummaryText(sets, reikLabel) {
     var filled = sets.filter(function (s) { return s.weight || s.reps; });
@@ -1507,16 +1498,22 @@
 
   // Thumbnail-afbeelding uit een YouTube-videolink (stabiele, publieke YouTube-CDN-URL,
   // afgeleid van de al geverifieerde video-id — geen apart opgezochte/gegokte afbeelding).
-  function youtubeThumbnail(url) {
+  // Eén gedeelde regex om een YouTube-video-id uit een link te halen — gebruikt door zowel de
+  // thumbnail als de embed-URL, zodat ze nooit uit elkaar kunnen groeien voor eenzelfde link.
+  function extractYoutubeId(url) {
     var m = String(url || "").match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/i);
-    return m ? "https://img.youtube.com/vi/" + m[1] + "/hqdefault.jpg" : "";
+    return m ? m[1] : "";
+  }
+  function youtubeThumbnail(url) {
+    var id = extractYoutubeId(url);
+    return id ? "https://img.youtube.com/vi/" + id + "/hqdefault.jpg" : "";
   }
 
   function toEmbedInfo(url) {
     url = String(url || "").trim();
     if (!url) return null;
-    var yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/i);
-    if (yt) return { type: "iframe", src: "https://www.youtube.com/embed/" + yt[1] + "?autoplay=1&playsinline=1" };
+    var ytId = extractYoutubeId(url);
+    if (ytId) return { type: "iframe", src: "https://www.youtube.com/embed/" + ytId + "?autoplay=1&playsinline=1" };
     var vimeo = url.match(/vimeo\.com\/(\d+)/i);
     if (vimeo) return { type: "iframe", src: "https://player.vimeo.com/video/" + vimeo[1] + "?autoplay=1" };
     if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return { type: "video", src: url };
@@ -1803,7 +1800,7 @@
   function sessionOverrideCardHTML(iso, override) {
     return "<div class=\"card\"><h3 class=\"card-title\">📝 Eigen sessie</h3>" +
       "<p>" + esc(override) + "</p>" +
-      "<p class=\"muted\">Vervangt enkel de weergave van deze dag — het normale schema blijft gewoon staan voor andere dagen.</p>" +
+      "<p class=\"muted\">Is enkel een notitie bovenaan deze dag — het geplande schema (en alles wat je erin al invulde) blijft hieronder gewoon staan, en voor andere dagen verandert er niets.</p>" +
       "<div class=\"btn-row\">" +
       "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-edit=\"" + iso + "\">Wijzigen</button>" +
       "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-clear=\"" + iso + "\">Terug naar schema</button>" +
@@ -1921,6 +1918,7 @@
       html += pauseCardHTML(pause);
     } else if (sessionOverride) {
       html += sessionOverrideCardHTML(iso, sessionOverride);
+      html += "<a class=\"btn btn-outline btn-block\" href=\"#/dag/" + iso + "\">Bekijk geplande sessie &amp; log</a>";
     } else {
       html += "<div class=\"card\">";
       html += "<h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(today)]) + " — sessie</h3>";
@@ -1996,7 +1994,7 @@
       var filled = hasDailyData(iso);
       var pauseHere = isPaused(date, person);
       var overrideHere = getSessionOverride(iso, person);
-      var togetherHint = (!pauseHere && !overrideHere && (role === "run" || role === "hyrox")) ? " 👥" : "";
+      var togetherHint = (!pauseHere && (role === "run" || role === "hyrox")) ? " 👥" : "";
       var sessionTitle = pauseHere ? "⏸️ Pauze (" + pauseHere.reason + ")" : overrideHere ? "📝 " + overrideHere : wp.title + (iso === PROGRAM_END ? " — 🏁 WEDSTRIJDDAG" : "");
 
       html += "<a class=\"day-card" + (isToday ? " today" : "") + "\" href=\"#/dag/" + iso + "\">";
@@ -2067,8 +2065,8 @@
     html += "</div>";
     if (allowAddRemove) {
       html += "<div class=\"btn-row\">";
-      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exset-add=\"" + esc(exName) + "\" data-date=\"" + iso + "\">+ Set</button>";
-      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exset-remove=\"" + esc(exName) + "\" data-date=\"" + iso + "\">− Set</button>";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exset-add=\"" + esc(exName) + "\" data-date=\"" + iso + "\" data-current-count=\"" + sets.length + "\">+ Set</button>";
+      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-exset-remove=\"" + esc(exName) + "\" data-date=\"" + iso + "\" data-current-count=\"" + sets.length + "\">− Set</button>";
       html += "</div>";
     }
     html += "</details>";
@@ -2305,15 +2303,19 @@
     var sessionOverride = getSessionOverride(iso, getProfile());
     if (pause) {
       html += pauseCardHTML(pause);
-    } else if (sessionOverride) {
-      html += sessionOverrideCardHTML(iso, sessionOverride);
     } else {
-      html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(date)]) + " — sessie</h3>";
-      html += "<p>" + esc(wp.title) + "</p>";
-      if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
-      html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-edit=\"" + iso + "\">Iets anders gedaan? Vul een eigen sessie in</button>";
-      html += "</div>";
+      if (sessionOverride) {
+        html += sessionOverrideCardHTML(iso, sessionOverride);
+      } else {
+        html += "<div class=\"card\"><h3 class=\"card-title\">" + esc(DOW_LABELS[dowKey(date)]) + " — sessie</h3>";
+        html += "<p>" + esc(wp.title) + "</p>";
+        if (wp.extra) html += "<p class=\"muted\">Extra: " + esc(wp.extra) + "</p>";
+        html += "<button type=\"button\" class=\"btn btn-outline btn-sm\" data-session-override-edit=\"" + iso + "\">Iets anders gedaan? Vul een eigen sessie in</button>";
+        html += "</div>";
+      }
 
+      // Het geplande schema (en alles wat je er al voor logde) blijft altijd bereikbaar, ook met
+      // een eigen sessie erboven — een override verbergt dus nooit al ingevoerde data.
       if (role === "upper" || role === "legs" || role === "fullbody") {
         html += "<h2 class=\"section-title\">Krachttraining</h2>";
         html += strengthTableHTML(iso, phase.id, role);
@@ -3217,13 +3219,12 @@
 
     var addSetBtn = e.target.closest && e.target.closest("[data-exset-add]");
     if (addSetBtn) {
-      addExSetRow(addSetBtn.getAttribute("data-date"), addSetBtn.getAttribute("data-exset-add"));
-      scheduleRerender();
+      addExSetRow(addSetBtn.getAttribute("data-date"), addSetBtn.getAttribute("data-exset-add"), parseInt(addSetBtn.getAttribute("data-current-count"), 10) || 1);
       return;
     }
     var removeSetBtn = e.target.closest && e.target.closest("[data-exset-remove]");
     if (removeSetBtn) {
-      removeExSetRow(removeSetBtn.getAttribute("data-date"), removeSetBtn.getAttribute("data-exset-remove"));
+      removeExSetRow(removeSetBtn.getAttribute("data-date"), removeSetBtn.getAttribute("data-exset-remove"), parseInt(removeSetBtn.getAttribute("data-current-count"), 10) || 1);
       return;
     }
 
